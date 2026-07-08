@@ -59,21 +59,30 @@ export default function DriverPage() {
     if (!window.confirm(`${labels[action]}を登録します。よろしいですか？`)) return;
     setLoading(true);
     setMessage("");
-    const form = new FormData(event.currentTarget);
-    const body = Object.fromEntries(form.entries());
-    const location = locationActions.has(action) ? await getLocationPayload() : {};
-    const response = await fetch("/api/driver/logs", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ ...body, ...location, action })
-    });
-    const result = await response.json();
-    setLoading(false);
-    if (!response.ok) return setMessage(result.error ?? "保存できませんでした。");
-    setAction("");
-    setDistance("");
-    setMessage("保存しました。");
-    await load();
+    try {
+      const form = new FormData(event.currentTarget);
+      const body = Object.fromEntries(form.entries());
+      const location = locationActions.has(action) ? await getLocationPayload() : {};
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), 15_000);
+      const response = await fetch("/api/driver/logs", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ...body, ...location, action }),
+        signal: controller.signal
+      });
+      window.clearTimeout(timeout);
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) return setMessage(result.error ?? "保存できませんでした。");
+      setAction("");
+      setDistance("");
+      setMessage("保存しました。");
+      await load();
+    } catch {
+      setMessage("通信が完了しませんでした。電波状況を確認してもう一度登録してください。");
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function logout() {
@@ -203,19 +212,22 @@ function LogTable({ logs }: { logs: any[] }) {
 
 async function getLocationPayload() {
   if (!("geolocation" in navigator)) return {};
+  if (!window.isSecureContext && location.hostname !== "localhost" && location.hostname !== "127.0.0.1") return {};
   try {
-    const position = await new Promise<GeolocationPosition>((resolve, reject) => {
+    const timeout = new Promise<never>((_, reject) => window.setTimeout(() => reject(new Error("location timeout")), 3500));
+    const position = new Promise<GeolocationPosition>((resolve, reject) => {
       navigator.geolocation.getCurrentPosition(resolve, reject, {
         enableHighAccuracy: true,
-        timeout: 8000,
+        timeout: 3000,
         maximumAge: 60_000
       });
     });
+    const safePosition = await Promise.race([position, timeout]);
     return {
-      latitude: position.coords.latitude,
-      longitude: position.coords.longitude,
-      accuracy: position.coords.accuracy,
-      capturedAt: new Date(position.timestamp).toISOString()
+      latitude: safePosition.coords.latitude,
+      longitude: safePosition.coords.longitude,
+      accuracy: safePosition.coords.accuracy,
+      capturedAt: new Date(safePosition.timestamp).toISOString()
     };
   } catch {
     return {};
