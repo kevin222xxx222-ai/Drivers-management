@@ -1,0 +1,151 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Driver {
+  id                String         @id @default(uuid()) @db.Uuid
+  driverName        String         @unique @map("driver_name") @db.VarChar(100)
+  pinHash           String         @map("pin_hash")
+  role              String         @default("DRIVER") @db.VarChar(20)
+  isActive          Boolean        @default(true) @map("is_active")
+  displayOrder      Int            @default(0) @map("display_order")
+  hourlyWage        Int            @default(0) @map("hourly_wage")
+  gasSettlementType String         @default("INCLUDED") @map("gas_settlement_type") @db.VarChar(20)
+  gasType           String?        @map("gas_type") @db.VarChar(50)
+  gasRate           Decimal?       @map("gas_rate") @db.Decimal(10, 2)
+  createdAt         DateTime       @default(now()) @map("created_at")
+  updatedAt         DateTime       @updatedAt @map("updated_at")
+  logs              DriverLog[]
+  notifications     Notification[]
+
+  @@map("drivers")
+}
+
+model Admin {
+  id           String   @id @default(uuid()) @db.Uuid
+  adminId      String   @unique @map("admin_id") @db.VarChar(100)
+  passwordHash String   @map("password_hash")
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@map("admins")
+}
+
+model Session {
+  id               String    @id @default(uuid()) @db.Uuid
+  userType         String    @map("user_type") @db.VarChar(20)
+  userId           String    @map("user_id") @db.Uuid
+  sessionTokenHash String    @unique @map("session_token_hash")
+  isActive         Boolean   @default(true) @map("is_active")
+  loginAt          DateTime  @default(now()) @map("login_at")
+  logoutAt         DateTime? @map("logout_at")
+  lastAccessAt     DateTime? @map("last_access_at")
+  expiresAt        DateTime? @map("expires_at")
+
+  @@map("sessions")
+}
+
+model DriverLog {
+  id                  String           @id @default(uuid()) @db.Uuid
+  businessDate        DateTime         @map("business_date") @db.Date
+  datetime            DateTime         @default(now())
+  driverId            String           @map("driver_id") @db.Uuid
+  driverName          String           @map("driver_name") @db.VarChar(100)
+  action              String           @db.VarChar(50)
+  status              String           @db.VarChar(50)
+  type                String?          @db.VarChar(50)
+  castName            String?          @map("cast_name") @db.VarChar(100)
+  destination         String?
+  scheduledClockOut   DateTime?        @map("scheduled_clock_out")
+  travelMinutes       Int?             @map("travel_minutes")
+  estimatedArrival    DateTime?        @map("estimated_arrival")
+  actualArrival       DateTime?        @map("actual_arrival")
+  dropoffTime         DateTime?        @map("dropoff_time")
+  clockOutTime        DateTime?        @map("clock_out_time")
+  roundedClockOutTime DateTime?        @map("rounded_clock_out_time")
+  workHours           Decimal?         @map("work_hours") @db.Decimal(5, 2)
+  hourlyWage          Int?             @map("hourly_wage")
+  wageSubtotal        Int?             @map("wage_subtotal")
+  gasSettlementType   String?          @map("gas_settlement_type") @db.VarChar(20)
+  gasType             String?          @map("gas_type") @db.VarChar(50)
+  gasRate             Decimal?         @map("gas_rate") @db.Decimal(10, 2)
+  distance            Decimal?         @db.Decimal(10, 2)
+  gasSubtotal         Int?             @map("gas_subtotal")
+  totalPayment        Int?             @map("total_payment")
+  dailyReport         String?          @map("daily_report")
+  waitPlace           String?          @map("wait_place") @db.VarChar(50)
+  memo                String?
+  latitude            Decimal?         @db.Decimal(10, 7)
+  longitude           Decimal?         @db.Decimal(10, 7)
+  accuracy            Decimal?         @db.Decimal(10, 2)
+  locationCapturedAt  DateTime?        @map("location_captured_at")
+  affectsStatus       Boolean          @default(true) @map("affects_status")
+  discordSent         Boolean          @default(false) @map("discord_sent")
+  discordSentAt       DateTime?        @map("discord_sent_at")
+  discordWebhookType  String?          @map("discord_webhook_type") @db.VarChar(50)
+  createdByUserType   String?          @map("created_by_user_type") @db.VarChar(20)
+  createdByUserId     String?          @map("created_by_user_id") @db.Uuid
+  updatedByUserType   String?          @map("updated_by_user_type") @db.VarChar(20)
+  updatedByUserId     String?          @map("updated_by_user_id") @db.Uuid
+  createdAt           DateTime         @default(now()) @map("created_at")
+  updatedAt           DateTime         @updatedAt @map("updated_at")
+  driver              Driver           @relation(fields: [driverId], references: [id])
+  audits              DriverLogAudit[]
+  notifications       Notification[]
+
+  @@index([driverId, businessDate, affectsStatus, datetime])
+  @@map("driver_logs")
+}
+
+model Notification {
+  id           String     @id @default(uuid()) @db.Uuid
+  category     String     @default("SYSTEM") @db.VarChar(20)
+  type         String     @db.VarChar(50)
+  severity     String     @db.VarChar(20)
+  title        String     @db.VarChar(200)
+  message      String
+  driverId     String?    @map("driver_id") @db.Uuid
+  relatedLogId String?    @map("related_log_id") @db.Uuid
+  isRead       Boolean    @default(false) @map("is_read")
+  createdAt    DateTime   @default(now()) @map("created_at")
+  readAt       DateTime?  @map("read_at")
+  driver       Driver?    @relation(fields: [driverId], references: [id])
+  relatedLog   DriverLog? @relation(fields: [relatedLogId], references: [id])
+
+  @@unique([type, relatedLogId])
+  @@index([category, isRead, createdAt])
+  @@index([isRead, createdAt])
+  @@index([type, createdAt])
+  @@map("notifications")
+}
+
+model DriverLogAudit {
+  id              String    @id @default(uuid()) @db.Uuid
+  driverLogId     String    @map("driver_log_id") @db.Uuid
+  beforeJson      Json      @map("before_json")
+  afterJson       Json      @map("after_json")
+  editedByAdminId String    @map("edited_by_admin_id") @db.Uuid
+  editedAt        DateTime  @default(now()) @map("edited_at")
+  reason          String?
+  driverLog       DriverLog @relation(fields: [driverLogId], references: [id])
+
+  @@index([driverLogId, editedAt])
+  @@map("driver_log_audits")
+}
+
+model ClockOutAlert {
+  id           String   @id @default(uuid()) @db.Uuid
+  driverId     String   @map("driver_id") @db.Uuid
+  businessDate DateTime @map("business_date") @db.Date
+  phase        String   @db.VarChar(20)
+  sentAt       DateTime @default(now()) @map("sent_at")
+
+  @@unique([driverId, businessDate, phase])
+  @@map("driver_clock_out_alerts")
+}
