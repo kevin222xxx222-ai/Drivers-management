@@ -2,6 +2,7 @@
 
 import React, { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { buildNotificationDisplay as buildNotificationDisplayView } from "@/lib/notification-view";
 
 type TabKey = "dashboard" | "waiting" | "rides" | "today" | "history" | "clockOuts" | "clockOutSummary" | "drivers" | "notifications" | "system";
 type Dashboard = {
@@ -840,7 +841,7 @@ function ToastStack({ toasts }: { toasts: AdminNotification[] }) {
 }
 
 function NotificationCard({ notification, compact = false, className = "" }: { notification: AdminNotification; compact?: boolean; className?: string }) {
-  const view = buildNotificationDisplay(notification);
+  const view = buildNotificationDisplayView(notification);
   return (
     <article className={`notification-card notification-line-${view.color} ${notification.isRead ? "read" : ""} ${compact ? "compact" : ""} ${className}`.trim()}>
       <div className="notification-header">
@@ -848,166 +849,14 @@ function NotificationCard({ notification, compact = false, className = "" }: { n
         <span className="notification-time">{view.time}</span>
       </div>
       <div className="notification-driver">{view.driverName}</div>
-      {!!view.details.length && (
+      {!!view.descriptionLines.length && (
         <div className="notification-details">
-          {view.details.map((line) => <p key={line}>{line}</p>)}
+          {view.descriptionLines.map((line) => <p key={line}>{line}</p>)}
         </div>
       )}
       {view.mapUrl && <a className="notification-map-link" href={view.mapUrl} target="_blank" rel="noreferrer">📍 Google Mapで開く</a>}
     </article>
   );
-}
-
-function buildNotificationDisplay(notification: AdminNotification) {
-  const log = notification.relatedLog;
-  const driverName = log?.driverName ?? notification.driver?.driverName ?? "ドライバー";
-  const createdAt = notification.createdAt;
-  const time = formatTime(createdAt);
-  const mapUrl = log?.latitude && log?.longitude ? `https://maps.google.com/?q=${log.latitude},${log.longitude}` : "";
-  const fallback = {
-    icon: notificationIcon(notification),
-    title: notification.title.replace(/^[^\s]+\s*/, ""),
-    time,
-    driverName,
-    details: notification.message ? [notification.message] : [],
-    color: notificationColor(notification),
-    mapUrl
-  };
-
-  if (notification.category === "SYSTEM") {
-    if (isClockOutAlertType(notification.type)) {
-      return {
-        icon: notification.type === "CLOCKOUT_OVER" ? "🚨" : notification.type === "CLOCKOUT_60_MIN_BEFORE" ? "⏰" : "⚠️",
-        title: notificationTypeLabel(notification.type),
-        time,
-        driverName,
-        details: notification.message.split("\n").filter((line) => line && line !== driverName),
-        color: notification.type === "CLOCKOUT_OVER" ? "system" : "warning",
-        mapUrl
-      };
-    }
-    if (notification.type === "ARRIVAL_OVERDUE") {
-      return {
-        icon: "⚠️",
-        title: "到着予定超過",
-        time,
-        driverName,
-        details: [`到着予定：${formatClockOnly(log?.estimatedArrival)}`, `現在ステータス：${log?.status ?? "-"}`],
-        color: "system",
-        mapUrl
-      };
-    }
-    if (notification.type === "CLOCK_OUT_OVERDUE") {
-      return {
-        icon: "🚨",
-        title: "退勤予定超過",
-        time,
-        driverName,
-        details: [`退勤予定：${formatDateTime(log?.scheduledClockOut)}`, `現在ステータス：${log?.status ?? "-"}`],
-        color: "system",
-        mapUrl
-      };
-    }
-    if (notification.type === "DISCORD_FAILED") {
-      return {
-        icon: "🚨",
-        title: "Discord送信失敗",
-        time,
-        driverName,
-        details: [`対象通知：${actionLabels[log?.action ?? ""] ?? notificationTypeLabel(notification.type)}`],
-        color: "system",
-        mapUrl
-      };
-    }
-    return {
-      icon: "🚨",
-      title: notification.title,
-      time,
-      driverName,
-      details: notification.message ? [notification.message] : [],
-      color: "system",
-      mapUrl
-    };
-  }
-
-  if (!log) return fallback;
-  if (log.action === "CLOCK_IN") {
-    return {
-      icon: "🟢",
-      title: "出勤",
-      time,
-      driverName,
-      details: [`出勤時刻：${formatMonthDayTime(log.datetime ?? createdAt)}`, `退勤予定：${formatMonthDayTime(log.scheduledClockOut)}`],
-      color: "business",
-      mapUrl
-    };
-  }
-  if (log.action === "UPDATE_SCHEDULED_CLOCK_OUT") {
-    return {
-      icon: "🕘",
-      title: "退勤予定変更",
-      time,
-      driverName,
-      details: [formatMonthDayTime(log.oldScheduledClockOut), "↓", formatMonthDayTime(log.newScheduledClockOut)],
-      color: "business",
-      mapUrl: ""
-    };
-  }
-  if (log.action === "MAIL_CONFIRM_SEND") return { icon: "📩", title: "送りメール確認", time, driverName, details: [`確認時間 ${formatClockOnly(log.datetime ?? createdAt)}`], color: "mail", mapUrl: "" };
-  if (log.action === "MAIL_CONFIRM_PICKUP") return { icon: "📩", title: "迎えメール確認", time, driverName, details: [`確認時間 ${formatClockOnly(log.datetime ?? createdAt)}`], color: "mail", mapUrl: "" };
-  if (log.action === "START_RIDE") {
-    const type = log.type ?? "";
-    const destination = log.destination ?? "目的地";
-    const castName = log.castName ?? "";
-    const rideDetails = [...(castName ? [`キャスト：${castName}`] : []), `目的地：${type === "事務所戻り" ? "事務所" : destination}`, `到着予定：${formatClockOnly(log.estimatedArrival)}`];
-    if (type === "送り") return { icon: "🚕", title: "送り中", time, driverName, details: rideDetails, color: "ride", mapUrl };
-    if (type === "迎え") return { icon: "🙋", title: "迎え中", time, driverName, details: rideDetails, color: "ride", mapUrl };
-    if (type === "事務所戻り") return { icon: "🏠", title: "戻り中", time, driverName, details: rideDetails, color: "ride", mapUrl };
-    return { icon: "📢", title: "その他", time, driverName, details: [...rideDetails, ...(log.memo ? [`メモ：${log.memo}`] : [])], color: "ride", mapUrl };
-  }
-  if (log.action === "ARRIVE") {
-    return {
-      icon: "✅",
-      title: "現地到着",
-      time,
-      driverName,
-      details: [...(log.castName ? [`キャスト：${log.castName}`] : []), ...(log.destination ? [`目的地：${log.destination}`] : []), `到着予定：${formatClockOnly(log.estimatedArrival)}`, `実際到着：${formatClockOnly(log.actualArrival ?? log.datetime)}`],
-      color: "arrive",
-      mapUrl
-    };
-  }
-  if (log.action === "DROPOFF") {
-    return { icon: "📢", title: "女性降車", time, driverName, details: [...(log.castName ? [`キャスト：${log.castName}`] : []), `降車時間：${formatClockOnly(log.dropoffTime ?? log.datetime)}`], color: "dropoff", mapUrl };
-  }
-  if (log.action === "WAIT_FIELD") {
-    return { icon: "📍", title: "現地待機", time, driverName, details: [`待機開始：${formatClockOnly(log.datetime ?? createdAt)}`], color: "wait", mapUrl };
-  }
-  if (log.action === "WAIT_OFFICE") {
-    return { icon: "🏢", title: "事務所待機", time, driverName, details: [`待機開始：${formatClockOnly(log.datetime ?? createdAt)}`], color: "wait", mapUrl };
-  }
-  if (log.action === "CLOCK_OUT") {
-    return {
-      icon: "🔴",
-      title: "退勤",
-      time,
-      driverName,
-      details: [`稼働時間：${log.workHours ?? "-"}h`, `合計報酬：${money(log.totalPayment)}`],
-      color: "clockout",
-      mapUrl
-    };
-  }
-  return fallback;
-}
-
-function notificationIcon(notification: AdminNotification) {
-  if (notification.severity === "CRITICAL") return "🚨";
-  if (notification.severity === "WARNING") return "⚠️";
-  return notification.category === "BUSINESS" ? "📢" : "ℹ️";
-}
-
-function notificationColor(notification: AdminNotification) {
-  if (notification.category === "SYSTEM") return "system";
-  return "business";
 }
 
 function initialAdminTab(): TabKey {

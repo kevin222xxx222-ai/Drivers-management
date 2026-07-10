@@ -4,12 +4,17 @@ import { hashPassword } from "../lib/password";
 const prisma = new PrismaClient();
 
 async function main() {
+  const adminPassword = process.env.SEED_ADMIN_PASSWORD;
+  const driverPin = process.env.SEED_DRIVER_PIN;
+  if (!adminPassword) throw new Error("SEED_ADMIN_PASSWORD を設定してください。");
+  if (!driverPin) throw new Error("SEED_DRIVER_PIN を設定してください。");
+
   await prisma.admin.upsert({
     where: { adminId: "admin" },
-    update: { passwordHash: hashPassword("password"), isActive: true },
+    update: { isActive: true },
     create: {
       adminId: "admin",
-      passwordHash: hashPassword("password"),
+      passwordHash: hashPassword(adminPassword),
       isActive: true
     }
   });
@@ -23,14 +28,13 @@ async function main() {
     await prisma.driver.upsert({
       where: { driverName: driver.driverName },
       update: {
-        pinHash: hashPassword("1234"),
         isActive: true,
         displayOrder: driver.displayOrder,
         hourlyWage: 1200
       },
       create: {
         ...driver,
-        pinHash: hashPassword("1234"),
+        pinHash: hashPassword(driverPin),
         hourlyWage: 1200,
         gasSettlementType: "INCLUDED"
       }

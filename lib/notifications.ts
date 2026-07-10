@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "./prisma";
 import { getBusinessDate } from "./time";
 import { sendDiscordNotice } from "./discord";
+import { buildBusinessNotificationView } from "./notification-view";
 
 const latestDriverLogOrder = [{ datetime: "desc" as const }, { createdAt: "desc" as const }, { id: "desc" as const }];
 
@@ -154,19 +155,24 @@ async function scanClockOutAlert(clockInLog: {
   const phase = clockOutAlertPhase(clockInLog.scheduledClockOut, now);
   if (!phase) return null;
 
-  try {
-    await prisma.clockOutAlert.create({
-      data: {
+  const alert = await prisma.clockOutAlert.upsert({
+    where: {
+      driverId_businessDate_scheduledClockOut_phase: {
         driverId: clockInLog.driverId,
         businessDate,
         scheduledClockOut: clockInLog.scheduledClockOut,
         phase: phase.phase
       }
-    });
-  } catch (error) {
-    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") return null;
-    throw error;
-  }
+    },
+    update: {},
+    create: {
+      driverId: clockInLog.driverId,
+      businessDate,
+      scheduledClockOut: clockInLog.scheduledClockOut,
+      phase: phase.phase
+    }
+  });
+  if (alert.sentAt.getTime() < now.getTime() - 1000) return null;
 
   const notification = await prisma.notification.create({
     data: {
@@ -285,26 +291,12 @@ export function notificationWhereFromSearchParams(searchParams: URLSearchParams)
 }
 
 function businessNotificationContent(log: Parameters<typeof createBusinessNotificationForLog>[0]) {
-  if (log.action === "CLOCK_IN") return { title: `🟢 ${log.driverName}`, message: `出勤時刻：${formatMonthDayTime(log.datetime)}\n退勤予定：${formatMonthDayTime(log.scheduledClockOut ?? null)}` };
-  if (log.action === "UPDATE_SCHEDULED_CLOCK_OUT") return { title: `🕘 ${log.driverName}`, message: `退勤予定変更 / ${formatClock(log.newScheduledClockOut ?? log.datetime)}` };
-  if (log.action === "MAIL_CONFIRM_SEND") return { title: `📩 ${log.driverName}`, message: `送りメール確認 / ${formatClock(log.datetime)}` };
-  if (log.action === "MAIL_CONFIRM_PICKUP") return { title: `📩 ${log.driverName}`, message: `迎えメール確認 / ${formatClock(log.datetime)}` };
-  if (log.action === "START_RIDE") {
-    const target = log.destination ?? log.castName ?? log.type ?? "送迎開始";
-    return { title: `🚕 ${log.driverName}`, message: `${target}へ出発 / ${formatClock(log.estimatedArrival)}` };
-  }
-  if (log.action === "ARRIVE") {
-    const target = log.destination ?? "現地";
-    return { title: `📍 ${log.driverName}`, message: `${target}到着 / ${formatClock(log.actualArrival ?? log.datetime)}` };
-  }
-  if (log.action === "DROPOFF") {
-    const cast = log.castName ?? "キャスト";
-    return { title: `👋 ${log.driverName}`, message: `${cast}降車 / ${formatClock(log.dropoffTime ?? log.datetime)}` };
-  }
-  if (log.action === "WAIT_FIELD") return { title: `📍 ${log.driverName}`, message: `現地待機 / ${formatClock(log.datetime)}` };
-  if (log.action === "WAIT_OFFICE") return { title: `🏢 ${log.driverName}`, message: `事務所待機 / ${formatClock(log.datetime)}` };
-  if (log.action === "CLOCK_OUT") return { title: `🔴 ${log.driverName}`, message: `退勤 / ${formatClock(log.clockOutTime ?? log.datetime)}` };
-  return null;
+  const view = buildBusinessNotificationView(log);
+  if (!view.title) return null;
+  return {
+    title: `${view.icon} ${view.driverName} / ${view.title}`,
+    message: view.descriptionLines.join("\n")
+  };
 }
 
 function businessNotificationType(action: string) {

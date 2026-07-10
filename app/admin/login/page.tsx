@@ -30,7 +30,6 @@ export default function AdminLoginPage() {
       <form className="panel login-card stack" onSubmit={submit}>
         <div className="stack">
           <h1>管理者ログイン</h1>
-          <p className="muted">AdminID + Password</p>
         </div>
         <label>
           AdminID
