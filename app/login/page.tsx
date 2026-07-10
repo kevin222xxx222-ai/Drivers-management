@@ -1,12 +1,20 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 export default function DriverLoginPage() {
   const router = useRouter();
   const [error, setError] = useState("");
+  const [drivers, setDrivers] = useState<{ id: string; driverName: string }[]>([]);
+
+  useEffect(() => {
+    fetch("/api/public/drivers", { cache: "no-store" })
+      .then((response) => response.ok ? response.json() : [])
+      .then(setDrivers)
+      .catch(() => setDrivers([]));
+  }, []);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -16,7 +24,7 @@ export default function DriverLoginPage() {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        driverName: form.get("driverName"),
+        driverId: form.get("driverId"),
         pin: form.get("pin")
       })
     });
@@ -30,15 +38,18 @@ export default function DriverLoginPage() {
       <form className="panel login-card stack" onSubmit={submit}>
         <div className="stack">
           <h1>ドライバーログイン</h1>
-          <p className="muted">DriverName + PIN</p>
+          <p className="muted">ドライバー名を選択してください</p>
         </div>
         <label>
           ドライバー名
-          <input name="driverName" autoComplete="username" required />
+          <select name="driverId" autoComplete="username" required defaultValue="">
+            <option value="" disabled>選択してください</option>
+            {drivers.map((driver) => <option key={driver.id} value={driver.id}>{driver.driverName}</option>)}
+          </select>
         </label>
         <label>
-          PIN
-          <input name="pin" type="password" inputMode="numeric" autoComplete="current-password" required />
+          PIN（電話番号下4桁）
+          <input name="pin" type="password" inputMode="numeric" autoComplete="current-password" placeholder="電話番号下4桁を入力" required />
         </label>
         {error && <p className="error">{error}</p>}
         <button className="button" type="submit">ログイン</button>

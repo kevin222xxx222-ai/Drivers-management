@@ -1,11 +1,20 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "./prisma";
 import { getBusinessDate } from "./time";
+import { sendDiscordNotice } from "./discord";
+
+const latestDriverLogOrder = [{ datetime: "desc" as const }, { createdAt: "desc" as const }, { id: "desc" as const }];
 
 export const NOTIFICATION_TYPES = {
   BUSINESS_ACTION: "BUSINESS_ACTION",
+  CLOCK_IN: "CLOCK_IN",
+  SCHEDULED_CLOCK_OUT_UPDATED: "SCHEDULED_CLOCK_OUT_UPDATED",
   ARRIVAL_OVERDUE: "ARRIVAL_OVERDUE",
   CLOCK_OUT_OVERDUE: "CLOCK_OUT_OVERDUE",
+  CLOCKOUT_60_MIN_BEFORE: "CLOCKOUT_60_MIN_BEFORE",
+  CLOCKOUT_30_MIN_BEFORE: "CLOCKOUT_30_MIN_BEFORE",
+  CLOCKOUT_15_MIN_BEFORE: "CLOCKOUT_15_MIN_BEFORE",
+  CLOCKOUT_OVER: "CLOCKOUT_OVER",
   DISCORD_FAILED: "DISCORD_FAILED",
   SYSTEM_ERROR: "SYSTEM_ERROR"
 } as const;
@@ -45,7 +54,7 @@ export async function scanOperationalNotifications() {
         businessDate,
         action: "CLOCK_IN",
         affectsStatus: true,
-        scheduledClockOut: { lt: now }
+        scheduledClockOut: { not: null }
       },
       include: { driver: true },
       orderBy: { scheduledClockOut: "asc" },
@@ -58,7 +67,7 @@ export async function scanOperationalNotifications() {
         discordWebhookType: { not: null }
       },
       include: { driver: true },
-      orderBy: { datetime: "desc" },
+      orderBy: latestDriverLogOrder,
       take: 100
     })
   ]);
@@ -77,26 +86,7 @@ export async function scanOperationalNotifications() {
     )
   );
 
-  const clockOutChecks = await Promise.all(
-    clockInLogs.map(async (clockInLog) => {
-      const latest = await prisma.driverLog.findFirst({
-        where: { driverId: clockInLog.driverId, businessDate, affectsStatus: true },
-        orderBy: { datetime: "desc" }
-      });
-      if (!latest || !ACTIVE_STATUSES.includes(latest.status)) return null;
-      return upsertLogNotification({
-        type: NOTIFICATION_TYPES.CLOCK_OUT_OVERDUE,
-        category: NOTIFICATION_CATEGORIES.SYSTEM,
-        severity: "CRITICAL",
-        title: "退勤予定超過",
-        message: `${clockInLog.driverName} / 退勤予定 ${formatClock(clockInLog.scheduledClockOut)}`,
-        driverId: clockInLog.driverId,
-        relatedLogId: clockInLog.id
-      });
-    })
-  );
-
-  await Promise.all(clockOutChecks.filter(Boolean));
+  await Promise.all(clockInLogs.map((clockInLog) => scanClockOutAlert(clockInLog, businessDate, now)));
 
   await Promise.all(
     discordFailedLogs.map((log) =>
@@ -148,6 +138,68 @@ export async function upsertLogNotification(input: {
   });
 }
 
+async function scanClockOutAlert(clockInLog: {
+  id: string;
+  driverId: string;
+  driverName: string;
+  scheduledClockOut: Date | null;
+}, businessDate: Date, now: Date) {
+  if (!clockInLog.scheduledClockOut) return null;
+  const latest = await prisma.driverLog.findFirst({
+    where: { driverId: clockInLog.driverId, businessDate, affectsStatus: true },
+    orderBy: latestDriverLogOrder
+  });
+  if (!latest || !ACTIVE_STATUSES.includes(latest.status)) return null;
+
+  const phase = clockOutAlertPhase(clockInLog.scheduledClockOut, now);
+  if (!phase) return null;
+
+  try {
+    await prisma.clockOutAlert.create({
+      data: {
+        driverId: clockInLog.driverId,
+        businessDate,
+        scheduledClockOut: clockInLog.scheduledClockOut,
+        phase: phase.phase
+      }
+    });
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") return null;
+    throw error;
+  }
+
+  const notification = await prisma.notification.create({
+    data: {
+      type: phase.type,
+      category: NOTIFICATION_CATEGORIES.SYSTEM,
+      severity: phase.severity,
+      title: phase.title,
+      message: `${clockInLog.driverName}\n退勤予定：${formatMonthDayTime(clockInLog.scheduledClockOut)}\n現在ステータス：${latest.status}`,
+      driverId: clockInLog.driverId
+    }
+  });
+
+  await sendDiscordNotice({
+    title: `${phase.icon} ${phase.title}｜${clockInLog.driverName}`,
+    color: phase.severity === "CRITICAL" ? 15158332 : phase.severity === "WARNING" ? 16753920 : 3447003,
+    fields: [
+      { name: "退勤予定", value: formatMonthDayTime(clockInLog.scheduledClockOut), inline: true },
+      { name: "現在ステータス", value: latest.status, inline: true }
+    ]
+  });
+  return notification;
+}
+
+function clockOutAlertPhase(scheduledClockOut: Date, now: Date) {
+  const diff = scheduledClockOut.getTime() - now.getTime();
+  const minute = 60 * 1000;
+  if (diff <= 0) return { phase: "OVER", type: NOTIFICATION_TYPES.CLOCKOUT_OVER, severity: "CRITICAL" as const, icon: "🚨", title: "退勤予定超過" };
+  if (diff <= 15 * minute) return { phase: "15", type: NOTIFICATION_TYPES.CLOCKOUT_15_MIN_BEFORE, severity: "WARNING" as const, icon: "⚠️", title: "退勤予定15分前" };
+  if (diff <= 30 * minute) return { phase: "30", type: NOTIFICATION_TYPES.CLOCKOUT_30_MIN_BEFORE, severity: "WARNING" as const, icon: "⚠️", title: "退勤予定30分前" };
+  if (diff <= 60 * minute) return { phase: "60", type: NOTIFICATION_TYPES.CLOCKOUT_60_MIN_BEFORE, severity: "INFO" as const, icon: "⏰", title: "退勤予定1時間前" };
+  return null;
+}
+
 export async function createBusinessNotificationForLog(log: {
   id: string;
   action: string;
@@ -160,13 +212,16 @@ export async function createBusinessNotificationForLog(log: {
   actualArrival: Date | null;
   dropoffTime: Date | null;
   clockOutTime: Date | null;
+  scheduledClockOut?: Date | null;
+  oldScheduledClockOut?: Date | null;
+  newScheduledClockOut?: Date | null;
   waitPlace: string | null;
   datetime: Date;
 }) {
   const content = businessNotificationContent(log);
   if (!content) return null;
   return upsertLogNotification({
-    type: NOTIFICATION_TYPES.BUSINESS_ACTION,
+    type: businessNotificationType(log.action),
     category: NOTIFICATION_CATEGORIES.BUSINESS,
     severity: "INFO",
     title: content.title,
@@ -230,6 +285,8 @@ export function notificationWhereFromSearchParams(searchParams: URLSearchParams)
 }
 
 function businessNotificationContent(log: Parameters<typeof createBusinessNotificationForLog>[0]) {
+  if (log.action === "CLOCK_IN") return { title: `🟢 ${log.driverName}`, message: `出勤時刻：${formatMonthDayTime(log.datetime)}\n退勤予定：${formatMonthDayTime(log.scheduledClockOut ?? null)}` };
+  if (log.action === "UPDATE_SCHEDULED_CLOCK_OUT") return { title: `🕘 ${log.driverName}`, message: `退勤予定変更 / ${formatClock(log.newScheduledClockOut ?? log.datetime)}` };
   if (log.action === "MAIL_CONFIRM_SEND") return { title: `📩 ${log.driverName}`, message: `送りメール確認 / ${formatClock(log.datetime)}` };
   if (log.action === "MAIL_CONFIRM_PICKUP") return { title: `📩 ${log.driverName}`, message: `迎えメール確認 / ${formatClock(log.datetime)}` };
   if (log.action === "START_RIDE") {
@@ -250,7 +307,18 @@ function businessNotificationContent(log: Parameters<typeof createBusinessNotifi
   return null;
 }
 
+function businessNotificationType(action: string) {
+  if (action === "CLOCK_IN") return NOTIFICATION_TYPES.CLOCK_IN;
+  if (action === "UPDATE_SCHEDULED_CLOCK_OUT") return NOTIFICATION_TYPES.SCHEDULED_CLOCK_OUT_UPDATED;
+  return NOTIFICATION_TYPES.BUSINESS_ACTION;
+}
+
 function formatClock(value: Date | null) {
   if (!value) return "未設定";
   return value.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Tokyo" });
+}
+
+function formatMonthDayTime(value: Date | null) {
+  if (!value) return "未設定";
+  return value.toLocaleString("ja-JP", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Tokyo" });
 }

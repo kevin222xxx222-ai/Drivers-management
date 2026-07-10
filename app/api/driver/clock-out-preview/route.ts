@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireDriver } from "@/lib/auth";
+import { getLatestClockInLog } from "@/lib/driver-service";
 import { calculateClockOutSettlement } from "@/lib/settlement";
-import { prisma } from "@/lib/prisma";
 import { getBusinessDate } from "@/lib/time";
 
 export async function GET(request: Request) {
@@ -11,10 +11,7 @@ export async function GET(request: Request) {
     const distanceParam = url.searchParams.get("distance");
     const distance = distanceParam ? Number(distanceParam) : null;
     const businessDate = getBusinessDate();
-    const clockInLog = await prisma.driverLog.findFirst({
-      where: { driverId: user.driver.id, businessDate, action: "CLOCK_IN", affectsStatus: true },
-      orderBy: { datetime: "desc" }
-    });
+    const clockInLog = await getLatestClockInLog(user.driver.id, businessDate);
     if (!clockInLog) return NextResponse.json({ error: "出勤ログがありません。" }, { status: 400 });
     return NextResponse.json(calculateClockOutSettlement({ driver: user.driver, clockInLog, distance }));
   } catch (error) {

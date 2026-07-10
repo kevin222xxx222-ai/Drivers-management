@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth";
+import { latestDriverLogOrder } from "@/lib/driver-service";
 import { prisma } from "@/lib/prisma";
 import { getBusinessDate } from "@/lib/time";
 
@@ -9,7 +10,7 @@ export async function GET() {
     const businessDate = getBusinessDate();
     const logs = await prisma.driverLog.findMany({
       where: { businessDate },
-      orderBy: { datetime: "desc" }
+      orderBy: latestDriverLogOrder
     });
     return NextResponse.json({ businessDate: businessDate.toISOString().slice(0, 10), logs });
   } catch (error) {

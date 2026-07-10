@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireDriver } from "@/lib/auth";
-import { createDriverLog } from "@/lib/driver-service";
+import { createDriverLog, getDriverPageState } from "@/lib/driver-service";
 
 export async function POST(request: Request) {
   try {
@@ -11,7 +11,8 @@ export async function POST(request: Request) {
       actor: { userType: "DRIVER", userId: user.driver.id },
       input
     });
-    return NextResponse.json({ success: true, log });
+    const state = await getDriverPageState(user.driver);
+    return NextResponse.json({ success: true, log, state });
   } catch (error) {
     if (error instanceof Response) return error;
     return NextResponse.json({ success: false, error: error instanceof Error ? error.message : "保存に失敗しました。" }, { status: 400 });

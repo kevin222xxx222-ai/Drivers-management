@@ -6,6 +6,7 @@ export const ACTIONS = [
   "WAIT_FIELD",
   "WAIT_OFFICE",
   "CLOCK_OUT",
+  "UPDATE_SCHEDULED_CLOCK_OUT",
   "MAIL_CONFIRM_SEND",
   "MAIL_CONFIRM_PICKUP"
 ] as const;

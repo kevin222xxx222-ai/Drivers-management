@@ -3,7 +3,7 @@
 import React, { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
-type TabKey = "dashboard" | "waiting" | "rides" | "today" | "history" | "clockOuts" | "drivers" | "notifications" | "system";
+type TabKey = "dashboard" | "waiting" | "rides" | "today" | "history" | "clockOuts" | "clockOutSummary" | "drivers" | "notifications" | "system";
 type Dashboard = {
   businessDate: string;
   summary: { workingWaitingCount: number; activeRideCount: number };
@@ -23,9 +23,35 @@ type AdminNotification = {
   severity: "INFO" | "WARNING" | "CRITICAL";
   title: string;
   message: string;
+  relatedLogId?: string | null;
   isRead: boolean;
   createdAt: string;
   driver?: { id: string; driverName: string } | null;
+  relatedLog?: {
+    id: string;
+    driverId: string;
+    driverName: string;
+    action: string;
+    status: string;
+    type?: string | null;
+    castName?: string | null;
+    destination?: string | null;
+    estimatedArrival?: string | null;
+    actualArrival?: string | null;
+    dropoffTime?: string | null;
+    clockOutTime?: string | null;
+    scheduledClockOut?: string | null;
+    oldScheduledClockOut?: string | null;
+    newScheduledClockOut?: string | null;
+    workHours?: string | number | null;
+    totalPayment?: string | number | null;
+    dailyReport?: string | null;
+    memo?: string | null;
+    latitude?: string | number | null;
+    longitude?: string | number | null;
+    datetime?: string | null;
+    createdAt?: string | null;
+  } | null;
 };
 
 const tabs: { key: TabKey; label: string }[] = [
@@ -35,6 +61,7 @@ const tabs: { key: TabKey; label: string }[] = [
   { key: "today", label: "本日履歴" },
   { key: "history", label: "全履歴" },
   { key: "clockOuts", label: "退勤一覧" },
+  { key: "clockOutSummary", label: "退勤者集計" },
   { key: "drivers", label: "ドライバー設定" },
   { key: "notifications", label: "通知履歴" },
   { key: "system", label: "システム設定" }
@@ -48,20 +75,26 @@ const actionLabels: Record<string, string> = {
   WAIT_FIELD: "現地待機",
   WAIT_OFFICE: "事務所待機",
   CLOCK_OUT: "退勤",
+  UPDATE_SCHEDULED_CLOCK_OUT: "退勤予定変更",
   MAIL_CONFIRM_SEND: "送りメール確認",
   MAIL_CONFIRM_PICKUP: "迎えメール確認"
 };
 
 export default function AdminPage() {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<TabKey>("dashboard");
+  const [activeTab, setActiveTab] = useState<TabKey>(() => initialAdminTab());
   const [menuOpen, setMenuOpen] = useState(false);
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [todayLogs, setTodayLogs] = useState<any[]>([]);
   const [history, setHistory] = useState<{ logs: any[]; totalPages: number; page: number }>({ logs: [], totalPages: 1, page: 1 });
   const [clockOuts, setClockOuts] = useState<any[]>([]);
+  const [clockOutSummary, setClockOutSummary] = useState<any | null>(null);
+  const [clockOutSummaryFilters, setClockOutSummaryFilters] = useState({ businessDateFrom: todayInputDate(), businessDateTo: todayInputDate(), driverId: "" });
+  const [selectedClockOutSummary, setSelectedClockOutSummary] = useState<any | null>(null);
   const [driverSettings, setDriverSettings] = useState<any[]>([]);
   const [selectedLog, setSelectedLog] = useState<any | null>(null);
+  const [selectedLogIds, setSelectedLogIds] = useState<string[]>([]);
+  const [logDeleteMode, setLogDeleteMode] = useState(false);
   const [selectedDriver, setSelectedDriver] = useState<any | null>(null);
   const [addingDriver, setAddingDriver] = useState(false);
   const [historySearchOpen, setHistorySearchOpen] = useState(false);
@@ -78,6 +111,15 @@ export default function AdminPage() {
   const [historyFilters, setHistoryFilters] = useState({ businessDateFrom: "", businessDateTo: "", driverId: "", status: "", type: "", action: "", castName: "", destination: "" });
   const knownNotificationIds = useRef<Set<string> | null>(null);
 
+  useEffect(() => {
+    localStorage.setItem("adminActiveTab", activeTab);
+    const url = new URL(window.location.href);
+    url.searchParams.set("tab", tabQueryValue(activeTab));
+    window.history.replaceState(null, "", url.toString());
+    setSelectedLogIds([]);
+    setLogDeleteMode(false);
+  }, [activeTab]);
+
   const loadDashboard = useCallback(async () => {
     const response = await fetch("/api/admin/dashboard", { cache: "no-store" });
     if (response.status === 401) return router.push("/admin/login");
@@ -93,6 +135,12 @@ export default function AdminPage() {
     const response = await fetch("/api/admin/clock-outs", { cache: "no-store" });
     if (response.ok) setClockOuts((await response.json()).logs);
   }, []);
+
+  const loadClockOutSummary = useCallback(async () => {
+    const params = new URLSearchParams(clockOutSummaryFilters);
+    const response = await fetch(`/api/admin/clock-out-summary?${params.toString()}`, { cache: "no-store" });
+    if (response.ok) setClockOutSummary(await response.json());
+  }, [clockOutSummaryFilters]);
 
   const loadDriverSettings = useCallback(async () => {
     const response = await fetch("/api/admin/drivers/settings", { cache: "no-store" });
@@ -118,16 +166,16 @@ export default function AdminPage() {
     setNotifications(items);
     setSystemUnreadCount(result.systemUnreadCount ?? result.unreadCount ?? 0);
     setBusinessUnreadCount(result.businessUnreadCount ?? 0);
-    const unreadBusinessIds = new Set(items.filter((item) => item.category === "BUSINESS" && !item.isRead).map((item) => item.id));
+    const unreadToastIds = new Set(items.filter((item) => shouldToastNotification(item) && !item.isRead).map((item) => item.id));
     if (knownNotificationIds.current) {
-      const fresh = items.filter((item) => item.category === "BUSINESS" && !item.isRead && !knownNotificationIds.current!.has(item.id));
+      const fresh = items.filter((item) => shouldToastNotification(item) && !item.isRead && !knownNotificationIds.current!.has(item.id));
       if (fresh.length) {
         setToasts((current) => [...fresh, ...current].slice(0, 6));
         if (soundEnabled) playNotificationSound(fresh[0].severity);
         window.setTimeout(() => setToasts((current) => current.filter((item) => !fresh.some((next) => next.id === item.id))), 7000);
       }
     }
-    knownNotificationIds.current = unreadBusinessIds;
+    knownNotificationIds.current = unreadToastIds;
   }, [notificationFilters, soundEnabled]);
 
   const resetHistory = useCallback(async () => {
@@ -152,12 +200,13 @@ export default function AdminPage() {
     if (activeTab === "today") loadToday();
     if (activeTab === "history") loadHistory(1);
     if (activeTab === "clockOuts") loadClockOuts();
+    if (activeTab === "clockOutSummary") loadClockOutSummary();
     if (activeTab === "drivers") loadDriverSettings();
     if (activeTab === "notifications") loadNotifications();
-  }, [activeTab, loadClockOuts, loadDriverSettings, loadHistory, loadNotifications, loadToday]);
+  }, [activeTab, loadClockOuts, loadClockOutSummary, loadDriverSettings, loadHistory, loadNotifications, loadToday]);
 
   async function logout() {
-    await fetch("/api/auth/logout", { method: "POST" });
+    await fetch("/api/auth/admin-logout", { method: "POST" });
     router.push("/admin/login");
   }
 
@@ -187,7 +236,7 @@ export default function AdminPage() {
     const response = await fetch(`/api/admin/drivers/${selectedDriver.id}/settings`, {
       method: "PATCH",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ ...Object.fromEntries(form.entries()), isActive: form.get("isActive") === "on" })
+      body: JSON.stringify(Object.fromEntries(form.entries()))
     });
     setMessage(response.ok ? "ドライバー設定を更新しました。" : "ドライバー設定の更新に失敗しました。");
     setSelectedDriver(null);
@@ -208,11 +257,44 @@ export default function AdminPage() {
   }
 
   async function deleteDriver(driver: any) {
-    if (!window.confirm(`このドライバーを無効化しますか？\n過去の履歴は削除されません。\n無効化すると、このドライバーはログインできなくなります。`)) return;
+    if (!window.confirm("このドライバーを削除しますか？\n過去の履歴がある場合は削除できない場合があります。")) return;
     const response = await fetch(`/api/admin/drivers/${driver.id}/settings`, { method: "DELETE" });
-    setMessage(response.ok ? "ドライバーを無効化しました。" : "ドライバー削除に失敗しました。");
+    setMessage(response.ok ? "ドライバーを削除しました。" : "ドライバー削除に失敗しました。");
     setSelectedDriver(null);
     await Promise.all([loadDashboard(), loadDriverSettings()]);
+  }
+
+  async function setDriverActive(driver: any, isActive: boolean) {
+    const confirmMessage = isActive
+      ? "このドライバーを有効化しますか？"
+      : "このドライバーを無効化しますか？\n無効化するとログインできなくなります。\n過去の履歴は削除されません。";
+    if (!window.confirm(confirmMessage)) return;
+    const response = await fetch(`/api/admin/drivers/${driver.id}/settings`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ isActive })
+    });
+    setMessage(response.ok ? (isActive ? "ドライバーを有効化しました。" : "ドライバーを無効化しました。") : "ドライバー設定の更新に失敗しました。");
+    setSelectedDriver(null);
+    await Promise.all([loadDashboard(), loadDriverSettings()]);
+  }
+
+  function toggleLogSelection(logId: string) {
+    setSelectedLogIds((current) => current.includes(logId) ? current.filter((id) => id !== logId) : [...current, logId]);
+  }
+
+  async function deleteSelectedLogs() {
+    if (!selectedLogIds.length) return;
+    if (!window.confirm("選択した履歴を削除しますか？\nこの操作は元に戻せません。")) return;
+    const response = await fetch("/api/admin/logs/bulk", {
+      method: "DELETE",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ logIds: selectedLogIds })
+    });
+    setMessage(response.ok ? "選択した履歴を削除しました。" : "履歴削除に失敗しました。");
+    setSelectedLogIds([]);
+    setLogDeleteMode(false);
+    await Promise.all([loadDashboard(), loadToday(), loadHistory(history.page), loadClockOuts(), loadClockOutSummary()]);
   }
 
   async function toggleNotificationRead(notification: AdminNotification) {
@@ -269,7 +351,7 @@ export default function AdminPage() {
             <h2>{title}</h2>
           </div>
           <div className="header-meta">
-            <span>営業日 {dashboard?.businessDate ?? "-"}</span>
+            <span>営業日 {formatDateWithWeekday(dashboard?.businessDate)}</span>
             <span>最終更新 {formatTime(dashboard?.lastUpdatedAt)}</span>
             <NotificationBell
               notifications={notifications}
@@ -293,10 +375,21 @@ export default function AdminPage() {
         {message && <p className={message.includes("失敗") ? "error" : "success"}>{message}</p>}
         {!dashboard ? <div className="panel">読み込み中...</div> : (
           <>
-            {activeTab === "dashboard" && <DashboardView dashboard={dashboard} onOpenNotifications={() => setActiveTab("notifications")} />}
+            {activeTab === "dashboard" && <DashboardView dashboard={dashboard} />}
             {activeTab === "waiting" && <WaitingTable rows={dashboard.waitingDrivers} />}
             {activeTab === "rides" && <RideTable rows={dashboard.activeRideDrivers} />}
-            {activeTab === "today" && <LogTable logs={todayLogs.length ? todayLogs : dashboard.todayLogs} onOpen={openLog} />}
+            {activeTab === "today" && (
+              <LogTable
+                logs={todayLogs.length ? todayLogs : dashboard.todayLogs}
+                onOpen={openLog}
+                selectedIds={selectedLogIds}
+                deleteMode={logDeleteMode}
+                onStartDeleteMode={() => setLogDeleteMode(true)}
+                onEndDeleteMode={() => { setLogDeleteMode(false); setSelectedLogIds([]); }}
+                onToggleSelect={toggleLogSelection}
+                onDeleteSelected={deleteSelectedLogs}
+              />
+            )}
             {activeTab === "history" && (
               <HistoryView
                 drivers={dashboard.drivers}
@@ -309,9 +402,25 @@ export default function AdminPage() {
                 onReset={resetHistory}
                 onPage={loadHistory}
                 onOpen={openLog}
+                selectedIds={selectedLogIds}
+                deleteMode={logDeleteMode}
+                onStartDeleteMode={() => setLogDeleteMode(true)}
+                onEndDeleteMode={() => { setLogDeleteMode(false); setSelectedLogIds([]); }}
+                onToggleSelect={toggleLogSelection}
+                onDeleteSelected={deleteSelectedLogs}
               />
             )}
             {activeTab === "clockOuts" && <ClockOutTable logs={clockOuts} />}
+            {activeTab === "clockOutSummary" && (
+              <ClockOutSummaryView
+                drivers={dashboard.drivers}
+                filters={clockOutSummaryFilters}
+                setFilters={setClockOutSummaryFilters}
+                data={clockOutSummary}
+                onSearch={loadClockOutSummary}
+                onOpen={setSelectedClockOutSummary}
+              />
+            )}
             {activeTab === "drivers" && <DriverSettingsTable rows={driverSettings} onOpen={setSelectedDriver} onAdd={() => setAddingDriver(true)} />}
             {activeTab === "notifications" && (
               <NotificationHistory
@@ -332,39 +441,39 @@ export default function AdminPage() {
         )}
       </section>
 
-      <ToastStack toasts={toasts} onClose={(id) => setToasts((current) => current.filter((item) => item.id !== id))} />
+      <ToastStack toasts={toasts} />
       {selectedLog && <LogModal log={selectedLog} onClose={() => setSelectedLog(null)} onSave={saveLog} />}
-      {selectedDriver && <DriverModal driver={selectedDriver} onClose={() => setSelectedDriver(null)} onSave={saveDriver} onDelete={() => deleteDriver(selectedDriver)} />}
+      {selectedClockOutSummary && <ClockOutSummaryModal item={selectedClockOutSummary} onClose={() => setSelectedClockOutSummary(null)} />}
+      {selectedDriver && <DriverModal driver={selectedDriver} onClose={() => setSelectedDriver(null)} onSave={saveDriver} onToggleActive={(isActive) => setDriverActive(selectedDriver, isActive)} onDelete={() => deleteDriver(selectedDriver)} />}
       {addingDriver && <AddDriverModal onClose={() => setAddingDriver(false)} onSave={addDriver} />}
     </main>
   );
 }
 
-function DashboardView({ dashboard, onOpenNotifications }: { dashboard: Dashboard; onOpenNotifications: () => void }) {
+function DashboardView({ dashboard }: { dashboard: Dashboard }) {
   return (
     <div className="monitor-stack">
-      <WarningArea summary={dashboard.warningSummary ?? []} onClick={onOpenNotifications} />
       <div className="summary-grid">
         <Summary label="出勤・待機中" value={dashboard.summary.workingWaitingCount} />
         <Summary label="送迎中" value={dashboard.summary.activeRideCount} />
       </div>
-      <div className="monitor-two-col">
-        <section className="monitor-panel dashboard-waiting"><h3>出勤・待機中一覧</h3><WaitingTable rows={dashboard.waitingDrivers} compact /></section>
-        <section className="monitor-panel dashboard-rides"><h3>送迎中一覧</h3><RideTable rows={dashboard.activeRideDrivers} compact /></section>
+      <div className="dashboard-list-grid">
+        <section className="monitor-panel dashboard-waiting"><h3>出勤・待機中一覧</h3><WaitingTable rows={dashboard.waitingDrivers} /></section>
+        <section className="monitor-panel dashboard-rides"><h3>送迎中一覧</h3><RideTable rows={dashboard.activeRideDrivers} /></section>
       </div>
     </div>
   );
 }
 
-function Summary({ label, value }: { label: string; value: number }) {
+function Summary({ label, value }: { label: string; value: React.ReactNode }) {
   return <div className="summary-box"><span>{label}</span><strong>{value}</strong></div>;
 }
 
 function WaitingTable({ rows, compact = false }: { rows: any[]; compact?: boolean }) {
   return (
-    <Table empty="出勤・待機中のドライバーはいません。">
-      <thead><tr><th>ドライバー名</th><th>現在ステータス</th><th>最終更新</th>{!compact && <th>メモ</th>}</tr></thead>
-      <tbody>{rows.map((row) => <tr key={row.driverId}><td>{row.driverName}</td><td><StatusBadge status={row.status} /></td><td>{formatTime(row.lastUpdatedAt)}</td>{!compact && <td className="memo-cell">{row.memo ?? ""}</td>}</tr>)}</tbody>
+    <Table empty="出勤・待機中のドライバーはいません。" tableClassName="monitor-table waiting-table" wrapperClassName="table-scroll waiting-table-wrapper">
+      <thead><tr><th>状態</th><th>ドライバー名</th><th>最終更新</th>{!compact && <th>メモ</th>}</tr></thead>
+      <tbody>{rows.map((row) => <tr key={row.driverId}><td><StatusBadge status={row.status} /></td><td>{row.driverName}</td><td>{formatTime(row.lastUpdatedAt)}</td>{!compact && <td className="memo-cell">{row.memo ?? ""}</td>}</tr>)}</tbody>
     </Table>
   );
 }
@@ -383,21 +492,56 @@ function RideTable({ rows, compact = false }: { rows: any[]; compact?: boolean }
   );
 }
 
-function LogTable({ logs, onOpen, fullDate = false }: { logs: any[]; onOpen: (id: string) => void; fullDate?: boolean }) {
+function LogTable({
+  logs,
+  onOpen,
+  fullDate = false,
+  selectedIds = [],
+  deleteMode = false,
+  onStartDeleteMode,
+  onEndDeleteMode,
+  onToggleSelect,
+  onDeleteSelected
+}: {
+  logs: any[];
+  onOpen: (id: string) => void;
+  fullDate?: boolean;
+  selectedIds?: string[];
+  deleteMode?: boolean;
+  onStartDeleteMode?: () => void;
+  onEndDeleteMode?: () => void;
+  onToggleSelect?: (id: string) => void;
+  onDeleteSelected?: () => void;
+}) {
   return (
-    <Table empty="履歴がありません。">
-      <thead><tr><th>時刻</th><th>ドライバー名</th><th>操作</th><th>状態</th><th>種別</th><th>キャスト名</th><th>目的地</th><th>到着予定</th><th>実際到着</th><th>降車時刻</th><th>メモ</th><th>Discord送信</th></tr></thead>
+    <div className="monitor-stack">
+      {onStartDeleteMode && !deleteMode && (
+        <div className="bulk-actions">
+          <button className="button secondary" type="button" onClick={onStartDeleteMode}>履歴を選択削除</button>
+        </div>
+      )}
+      {deleteMode && (
+        <div className="bulk-actions">
+          <button className="button secondary" type="button" onClick={onEndDeleteMode}>削除モード終了</button>
+          <span>{selectedIds.length}件選択中</span>
+          {selectedIds.length > 0 && <button className="button danger" type="button" onClick={onDeleteSelected}>選択した履歴を削除</button>}
+        </div>
+      )}
+      <Table empty="履歴がありません。">
+      <thead><tr>{deleteMode && onToggleSelect && <th>選択</th>}<th>時刻</th><th>ドライバー名</th><th>操作</th><th>状態</th><th>種別</th><th>キャスト名</th><th>目的地</th><th>退勤予定</th><th>変更前</th><th>変更後</th><th>到着予定</th><th>実際到着</th><th>降車時刻</th><th>メモ</th><th>Discord送信</th></tr></thead>
       <tbody>{logs.map((log) => (
         <tr key={log.id} className="click-row" onClick={() => onOpen(log.id)}>
+          {deleteMode && onToggleSelect && <td onClick={(event) => event.stopPropagation()}><input type="checkbox" checked={selectedIds.includes(log.id)} onChange={() => onToggleSelect(log.id)} /></td>}
           <td>{fullDate ? formatDateTime(log.datetime) : formatTime(log.datetime)}</td><td>{log.driverName}</td><td>{actionLabels[log.action] ?? log.action}</td><td>{log.status}</td><td>{log.type ?? "-"}</td><td>{log.castName ?? "-"}</td><td>{log.destination ?? "-"}</td>
-          <td className="time-strong">{formatTime(log.estimatedArrival)}</td><td>{formatTime(log.actualArrival)}</td><td>{formatTime(log.dropoffTime)}</td><td className="memo-cell">{log.memo ?? ""}</td><td>{log.discordSent ? "送信済み" : "未送信"}</td>
+          <td>{formatMonthDayTime(log.scheduledClockOut)}</td><td>{formatMonthDayTime(log.oldScheduledClockOut)}</td><td>{formatMonthDayTime(log.newScheduledClockOut)}</td><td className="time-strong">{formatTime(log.estimatedArrival)}</td><td>{formatTime(log.actualArrival)}</td><td>{formatTime(log.dropoffTime)}</td><td className="memo-cell">{log.memo ?? ""}</td><td>{log.discordSent ? "送信済み" : "未送信"}</td>
         </tr>
       ))}</tbody>
-    </Table>
+      </Table>
+    </div>
   );
 }
 
-function HistoryView({ drivers, filters, setFilters, searchOpen, setSearchOpen, history, onSearch, onReset, onPage, onOpen }: any) {
+function HistoryView({ drivers, filters, setFilters, searchOpen, setSearchOpen, history, onSearch, onReset, onPage, onOpen, selectedIds, deleteMode, onStartDeleteMode, onEndDeleteMode, onToggleSelect, onDeleteSelected }: any) {
   return (
     <div className="monitor-stack">
       <section className="monitor-panel">
@@ -416,7 +560,7 @@ function HistoryView({ drivers, filters, setFilters, searchOpen, setSearchOpen, 
           </form>
         )}
       </section>
-      <LogTable logs={history.logs} onOpen={onOpen} fullDate />
+      <LogTable logs={history.logs} onOpen={onOpen} fullDate selectedIds={selectedIds} deleteMode={deleteMode} onStartDeleteMode={onStartDeleteMode} onEndDeleteMode={onEndDeleteMode} onToggleSelect={onToggleSelect} onDeleteSelected={onDeleteSelected} />
       <div className="pager"><button className="button secondary" disabled={history.page <= 1} onClick={() => onPage(history.page - 1)}>前へ</button><span>{history.page} / {history.totalPages || 1}</span><button className="button secondary" disabled={history.page >= history.totalPages} onClick={() => onPage(history.page + 1)}>次へ</button></div>
     </div>
   );
@@ -428,6 +572,83 @@ function ClockOutTable({ logs }: { logs: any[] }) {
       <thead><tr><th>ドライバー名</th><th>時給</th><th>出勤時間</th><th>退勤時間</th><th>丸め後</th><th>稼働時間</th><th>時給分</th><th>ガス精算</th><th>走行距離</th><th>ガス代</th><th>合計報酬</th><th>業務報告</th><th>最終更新</th></tr></thead>
       <tbody>{logs.map((log) => <tr key={log.id}><td>{log.driverName}</td><td>{money(log.hourlyWage)}</td><td>-</td><td>{formatTime(log.clockOutTime)}</td><td>{formatTime(log.roundedClockOutTime)}</td><td>{log.workHours ?? "-"}h</td><td>{money(log.wageSubtotal)}</td><td>{formatGasSettlement(log.gasSettlementType)}</td><td>{log.distance ?? "-"}km</td><td>{money(log.gasSubtotal)}</td><td>{money(log.totalPayment)}</td><td className="memo-cell">{log.dailyReport ?? ""}</td><td>{formatTime(log.updatedAt)}</td></tr>)}</tbody>
     </Table>
+  );
+}
+
+function ClockOutSummaryView({ drivers, filters, setFilters, data, onSearch, onOpen }: any) {
+  const csvUrl = `/api/admin/clock-out-summary/csv?${new URLSearchParams(filters).toString()}`;
+  return (
+    <div className="monitor-stack">
+      <section className="monitor-panel">
+        <form className="search-grid clock-summary-filter-grid" onSubmit={(event) => { event.preventDefault(); onSearch(); }}>
+          <label>営業日From<input type="date" required value={filters.businessDateFrom} onChange={(event) => setFilters({ ...filters, businessDateFrom: event.target.value })} /></label>
+          <label>営業日To<input type="date" required value={filters.businessDateTo} onChange={(event) => setFilters({ ...filters, businessDateTo: event.target.value })} /></label>
+          <label>ドライバー<select value={filters.driverId} onChange={(event) => setFilters({ ...filters, driverId: event.target.value })}><option value="">全員</option>{drivers.map((driver: any) => <option key={driver.id} value={driver.id}>{driver.driverName}</option>)}</select></label>
+          <div className="row clock-summary-actions"><button className="button" type="submit">検索</button><a className="button secondary csv-link" href={csvUrl}>CSV出力</a></div>
+        </form>
+      </section>
+      {!data ? <div className="panel">読み込み中...</div> : (
+        <>
+          <div className="summary-grid clock-summary-grid">
+            <Summary label="退勤人数" value={data.summary.clockOutCount} />
+            <Summary label="合計稼働時間" value={`${formatHours(data.summary.totalWorkHours)}h` as any} />
+            <Summary label="合計走行距離" value={`${formatDistance(data.summary.totalDistance)}km` as any} />
+            <Summary label="合計ガス代" value={money(data.summary.totalGasSubtotal) as any} />
+            <Summary label="合計時給分" value={money(data.summary.totalWageSubtotal) as any} />
+            <Summary label="合計報酬" value={money(data.summary.totalPayment) as any} />
+          </div>
+          <section className="monitor-panel stack">
+            <h3>ドライバー別集計</h3>
+            <Table empty="集計対象がありません。">
+              <thead><tr><th>ドライバー名</th><th>退勤回数</th><th>合計稼働時間</th><th>合計走行距離</th><th>合計ガス代</th><th>合計時給分</th><th>合計報酬</th></tr></thead>
+              <tbody>{data.byDriver.map((row: any) => <tr key={row.driverId}><td>{row.driverName}</td><td>{row.clockOutCount}</td><td>{formatHours(row.totalWorkHours)}h</td><td>{formatDistance(row.totalDistance)}km</td><td>{money(row.totalGasSubtotal)}</td><td>{money(row.totalWageSubtotal)}</td><td>{money(row.totalPayment)}</td></tr>)}</tbody>
+            </Table>
+          </section>
+          <section className="monitor-panel stack">
+            <h3>退勤者一覧</h3>
+            <Table empty="退勤者がいません。" tableClassName="monitor-table clock-out-summary-table">
+              <thead><tr><th>営業日</th><th>ドライバー名</th><th>出勤時刻</th><th>退勤時刻</th><th>丸め後退勤</th><th>稼働時間</th><th>時給</th><th>時給小計</th><th>走行距離</th><th>ガス単価</th><th>ガス代小計</th><th>合計報酬</th><th>業務報告</th><th>退勤登録時刻</th></tr></thead>
+              <tbody>{data.items.map((item: any) => (
+                <tr key={item.id} className="click-row" onClick={() => onOpen(item)}>
+                  <td>{formatDateWithWeekday(item.businessDate)}</td><td>{item.driverName}</td><td>{formatMonthDayTime(item.clockInTime)}</td><td>{formatMonthDayTime(item.clockOutTime)}</td><td>{formatMonthDayTime(item.roundedClockOutTime)}</td>
+                  <td>{formatHours(item.workHours)}h</td><td>{money(item.hourlyWage)}</td><td>{money(item.wageSubtotal)}</td><td>{formatDistance(item.distance)}km</td><td>{money(item.gasRate)}</td><td>{money(item.gasSubtotal)}</td><td>{money(item.totalPayment)}</td><td className="memo-cell">{truncate(item.dailyReport, 50)}</td><td>{formatMonthDayTime(item.createdAt)}</td>
+                </tr>
+              ))}</tbody>
+            </Table>
+          </section>
+        </>
+      )}
+    </div>
+  );
+}
+
+function ClockOutSummaryModal({ item, onClose }: { item: any; onClose: () => void }) {
+  return (
+    <div className="modal-backdrop">
+      <section className="modal-panel stack">
+        <div className="between"><h3>退勤者詳細</h3><button type="button" className="button secondary" onClick={onClose}>閉じる</button></div>
+        <div className="detail-grid">
+          <p><strong>営業日</strong><br />{formatDateWithWeekday(item.businessDate)}</p>
+          <p><strong>ドライバー名</strong><br />{item.driverName}</p>
+          <p><strong>出勤時刻</strong><br />{formatMonthDayTime(item.clockInTime)}</p>
+          <p><strong>退勤時刻</strong><br />{formatMonthDayTime(item.clockOutTime)}</p>
+          <p><strong>丸め後退勤</strong><br />{formatMonthDayTime(item.roundedClockOutTime)}</p>
+          <p><strong>稼働時間</strong><br />{formatHours(item.workHours)}h</p>
+          <p><strong>時給</strong><br />{money(item.hourlyWage)}</p>
+          <p><strong>時給小計</strong><br />{money(item.wageSubtotal)}</p>
+          <p><strong>走行距離</strong><br />{formatDistance(item.distance)}km</p>
+          <p><strong>ガス単価</strong><br />{money(item.gasRate)}</p>
+          <p><strong>ガス代小計</strong><br />{money(item.gasSubtotal)}</p>
+          <p><strong>合計報酬</strong><br />{money(item.totalPayment)}</p>
+          <p><strong>退勤登録時刻</strong><br />{formatMonthDayTime(item.createdAt)}</p>
+        </div>
+        <section className="location-box">
+          <h3>業務報告</h3>
+          <p className="daily-report-full">{item.dailyReport || "-"}</p>
+        </section>
+        {item.latitude && item.longitude && <a className="button map-link" href={`https://maps.google.com/?q=${item.latitude},${item.longitude}`} target="_blank" rel="noreferrer">Google Mapで開く</a>}
+      </section>
+    </div>
   );
 }
 
@@ -461,15 +682,12 @@ function NotificationHistory({ notifications, drivers, activeCategory, setActive
           <label>ドライバー<select value={filters.driverId} onChange={(e) => setFilters({ ...filters, driverId: e.target.value })}><option value="">全員</option>{drivers.map((driver: any) => <option key={driver.id} value={driver.id}>{driver.driverName}</option>)}</select></label>
         </div>
       </section>
-      <Table empty="通知はありません。">
-        <thead><tr><th>区分</th><th>通知種別</th><th>発生時刻</th><th>ドライバー</th><th>内容</th><th>重要度</th><th>未読/既読</th><th>操作</th></tr></thead>
-        <tbody>{visibleNotifications.map((item: AdminNotification) => (
-          <tr key={item.id}>
-            <td>{notificationCategoryLabel(item.category)}</td><td>{notificationTypeLabel(item.type)}</td><td>{formatDateTime(item.createdAt)}</td><td>{item.driver?.driverName ?? "-"}</td><td><strong>{item.title}</strong><br /><span className="muted">{item.message}</span></td><td><SeverityBadge severity={item.severity} /></td><td>{item.isRead ? "既読" : "未読"}</td>
-            <td><button className="button secondary" type="button" onClick={() => onToggleRead(item)}>{item.isRead ? "未読に戻す" : "既読にする"}</button></td>
-          </tr>
-        ))}</tbody>
-      </Table>
+      <div className="notification-card-list">
+        {visibleNotifications.map((item: AdminNotification) => (
+          <NotificationCard key={item.id} notification={item} />
+        ))}
+        {!visibleNotifications.length && <p className="empty-state">通知はありません。</p>}
+      </div>
     </div>
   );
 }
@@ -513,16 +731,22 @@ function LogModal({ log, onClose, onSave }: { log: any; onClose: () => void; onS
   );
 }
 
-function DriverModal({ driver, onClose, onSave, onDelete }: { driver: any; onClose: () => void; onSave: (event: FormEvent<HTMLFormElement>) => void; onDelete: () => void }) {
+function DriverModal({ driver, onClose, onSave, onToggleActive, onDelete }: { driver: any; onClose: () => void; onSave: (event: FormEvent<HTMLFormElement>) => void; onToggleActive: (isActive: boolean) => void; onDelete: () => void }) {
   return (
     <div className="modal-backdrop">
       <form className="modal-panel stack" onSubmit={onSave}>
         <div className="between"><h3>ドライバー設定編集</h3><button type="button" className="button secondary" onClick={onClose}>閉じる</button></div>
         <div className="detail-grid">
           <label>ドライバー名<input name="driverName" defaultValue={driver.driverName} required /></label><label>時給<input name="hourlyWage" type="number" defaultValue={driver.hourlyWage} /></label><label>ガス精算タイプ<select name="gasSettlementType" defaultValue={driver.gasSettlementType}><option value="INCLUDED">ガス代込み</option><option value="SEPARATE">ガス別精算</option></select></label>
-          <label>ガス単価<input name="gasRate" type="number" step="0.01" defaultValue={driver.gasRate ?? ""} /></label><label>表示順<input name="displayOrder" type="number" defaultValue={driver.displayOrder} /></label><label className="check-row"><input name="isActive" type="checkbox" defaultChecked={driver.isActive} />有効</label>
+          <label>ガス単価<input name="gasRate" type="number" step="0.01" defaultValue={driver.gasRate ?? ""} /></label><label>表示順<input name="displayOrder" type="number" defaultValue={driver.displayOrder} /></label><p><strong>状態</strong><br />{driver.isActive ? "有効" : "無効"}</p>
         </div>
-        <div className="between compact-actions"><button className="button danger" type="button" onClick={onDelete}>削除</button><button className="button" type="submit">保存</button></div>
+        <div className="between compact-actions">
+          <div className="row">
+            {driver.isActive ? <button className="button warn" type="button" onClick={() => onToggleActive(false)}>無効化</button> : <button className="button" type="button" onClick={() => onToggleActive(true)}>有効化</button>}
+            <button className="button danger" type="button" onClick={onDelete}>削除</button>
+          </div>
+          <button className="button" type="submit">保存</button>
+        </div>
       </form>
     </div>
   );
@@ -548,11 +772,11 @@ function AddDriverModal({ onClose, onSave }: { onClose: () => void; onSave: (eve
   );
 }
 
-function Table({ children, empty }: { children: React.ReactNode; empty: string }) {
+function Table({ children, empty, tableClassName = "monitor-table", wrapperClassName = "table-scroll" }: { children: React.ReactNode; empty: string; tableClassName?: string; wrapperClassName?: string }) {
   const childArray = React.Children.toArray(children);
   const rowCount = React.Children.count((childArray[1] as any)?.props?.children);
   const isEmpty = rowCount === 0;
-  return <div className="table-scroll"><table className="monitor-table">{children}</table>{isEmpty && <p className="empty-state">{empty}</p>}</div>;
+  return <div className={wrapperClassName}><table className={tableClassName}>{children}</table>{isEmpty && <p className="empty-state">{empty}</p>}</div>;
 }
 
 function NotificationBell({ notifications, unreadCount, businessUnreadCount, systemUnreadCount, open, onToggleOpen, activeCategory, setActiveCategory, soundEnabled, setSoundEnabled, autoReadBusinessOnOpen, setAutoReadBusinessOnOpen, onReadAll, onOpenHistory, onToggleRead }: any) {
@@ -573,12 +797,7 @@ function NotificationBell({ notifications, unreadCount, businessUnreadCount, sys
           <label className="check-row notification-auto-read"><input type="checkbox" checked={autoReadBusinessOnOpen} onChange={(event) => setAutoReadBusinessOnOpen(event.target.checked)} />開いた時に業務通知を自動既読</label>
           <div className="notification-list">
             {visibleNotifications.map((item: AdminNotification) => (
-              <button key={item.id} className={`notification-item ${item.isRead ? "read" : ""}`} type="button" onClick={() => onToggleRead(item)}>
-                <span><SeverityBadge severity={item.severity} /> {notificationTypeLabel(item.type)}</span>
-                <strong>{item.title}</strong>
-                <small>{item.driver?.driverName ?? "-"} / {formatDateTime(item.createdAt)}</small>
-                <span>{item.message}</span>
-              </button>
+              <NotificationCard key={item.id} notification={item} compact />
             ))}
             {!visibleNotifications.length && <p className="empty-state">通知はありません。</p>}
           </div>
@@ -610,18 +829,237 @@ function WarningArea({ summary, onClick }: { summary: NotificationSummary[]; onC
   );
 }
 
-function ToastStack({ toasts, onClose }: { toasts: AdminNotification[]; onClose: (id: string) => void }) {
+function ToastStack({ toasts }: { toasts: AdminNotification[] }) {
   return (
     <div className="toast-stack">
       {toasts.map((toast) => (
-        <button key={toast.id} className={`toast toast-${toast.severity.toLowerCase()}`} type="button" onClick={() => onClose(toast.id)}>
-          <strong>{toast.title}</strong>
-          <span>{toast.driver?.driverName ?? ""}</span>
-          <small>{toast.message}</small>
-        </button>
+        <NotificationCard key={toast.id} notification={toast} compact className={`toast toast-${toast.severity.toLowerCase()}`} />
       ))}
     </div>
   );
+}
+
+function NotificationCard({ notification, compact = false, className = "" }: { notification: AdminNotification; compact?: boolean; className?: string }) {
+  const view = buildNotificationDisplay(notification);
+  return (
+    <article className={`notification-card notification-line-${view.color} ${notification.isRead ? "read" : ""} ${compact ? "compact" : ""} ${className}`.trim()}>
+      <div className="notification-header">
+        <strong className="notification-title">{view.icon} {view.title}</strong>
+        <span className="notification-time">{view.time}</span>
+      </div>
+      <div className="notification-driver">{view.driverName}</div>
+      {!!view.details.length && (
+        <div className="notification-details">
+          {view.details.map((line) => <p key={line}>{line}</p>)}
+        </div>
+      )}
+      {view.mapUrl && <a className="notification-map-link" href={view.mapUrl} target="_blank" rel="noreferrer">📍 Google Mapで開く</a>}
+    </article>
+  );
+}
+
+function buildNotificationDisplay(notification: AdminNotification) {
+  const log = notification.relatedLog;
+  const driverName = log?.driverName ?? notification.driver?.driverName ?? "ドライバー";
+  const createdAt = notification.createdAt;
+  const time = formatTime(createdAt);
+  const mapUrl = log?.latitude && log?.longitude ? `https://maps.google.com/?q=${log.latitude},${log.longitude}` : "";
+  const fallback = {
+    icon: notificationIcon(notification),
+    title: notification.title.replace(/^[^\s]+\s*/, ""),
+    time,
+    driverName,
+    details: notification.message ? [notification.message] : [],
+    color: notificationColor(notification),
+    mapUrl
+  };
+
+  if (notification.category === "SYSTEM") {
+    if (isClockOutAlertType(notification.type)) {
+      return {
+        icon: notification.type === "CLOCKOUT_OVER" ? "🚨" : notification.type === "CLOCKOUT_60_MIN_BEFORE" ? "⏰" : "⚠️",
+        title: notificationTypeLabel(notification.type),
+        time,
+        driverName,
+        details: notification.message.split("\n").filter((line) => line && line !== driverName),
+        color: notification.type === "CLOCKOUT_OVER" ? "system" : "warning",
+        mapUrl
+      };
+    }
+    if (notification.type === "ARRIVAL_OVERDUE") {
+      return {
+        icon: "⚠️",
+        title: "到着予定超過",
+        time,
+        driverName,
+        details: [`到着予定：${formatClockOnly(log?.estimatedArrival)}`, `現在ステータス：${log?.status ?? "-"}`],
+        color: "system",
+        mapUrl
+      };
+    }
+    if (notification.type === "CLOCK_OUT_OVERDUE") {
+      return {
+        icon: "🚨",
+        title: "退勤予定超過",
+        time,
+        driverName,
+        details: [`退勤予定：${formatDateTime(log?.scheduledClockOut)}`, `現在ステータス：${log?.status ?? "-"}`],
+        color: "system",
+        mapUrl
+      };
+    }
+    if (notification.type === "DISCORD_FAILED") {
+      return {
+        icon: "🚨",
+        title: "Discord送信失敗",
+        time,
+        driverName,
+        details: [`対象通知：${actionLabels[log?.action ?? ""] ?? notificationTypeLabel(notification.type)}`],
+        color: "system",
+        mapUrl
+      };
+    }
+    return {
+      icon: "🚨",
+      title: notification.title,
+      time,
+      driverName,
+      details: notification.message ? [notification.message] : [],
+      color: "system",
+      mapUrl
+    };
+  }
+
+  if (!log) return fallback;
+  if (log.action === "CLOCK_IN") {
+    return {
+      icon: "🟢",
+      title: "出勤",
+      time,
+      driverName,
+      details: [`出勤時刻：${formatMonthDayTime(log.datetime ?? createdAt)}`, `退勤予定：${formatMonthDayTime(log.scheduledClockOut)}`],
+      color: "business",
+      mapUrl
+    };
+  }
+  if (log.action === "UPDATE_SCHEDULED_CLOCK_OUT") {
+    return {
+      icon: "🕘",
+      title: "退勤予定変更",
+      time,
+      driverName,
+      details: [formatMonthDayTime(log.oldScheduledClockOut), "↓", formatMonthDayTime(log.newScheduledClockOut)],
+      color: "business",
+      mapUrl: ""
+    };
+  }
+  if (log.action === "MAIL_CONFIRM_SEND") return { icon: "📩", title: "送りメール確認", time, driverName, details: [`確認時間 ${formatClockOnly(log.datetime ?? createdAt)}`], color: "mail", mapUrl: "" };
+  if (log.action === "MAIL_CONFIRM_PICKUP") return { icon: "📩", title: "迎えメール確認", time, driverName, details: [`確認時間 ${formatClockOnly(log.datetime ?? createdAt)}`], color: "mail", mapUrl: "" };
+  if (log.action === "START_RIDE") {
+    const type = log.type ?? "";
+    const destination = log.destination ?? "目的地";
+    const castName = log.castName ?? "";
+    const rideDetails = [...(castName ? [`キャスト：${castName}`] : []), `目的地：${type === "事務所戻り" ? "事務所" : destination}`, `到着予定：${formatClockOnly(log.estimatedArrival)}`];
+    if (type === "送り") return { icon: "🚕", title: "送り中", time, driverName, details: rideDetails, color: "ride", mapUrl };
+    if (type === "迎え") return { icon: "🙋", title: "迎え中", time, driverName, details: rideDetails, color: "ride", mapUrl };
+    if (type === "事務所戻り") return { icon: "🏠", title: "戻り中", time, driverName, details: rideDetails, color: "ride", mapUrl };
+    return { icon: "📢", title: "その他", time, driverName, details: [...rideDetails, ...(log.memo ? [`メモ：${log.memo}`] : [])], color: "ride", mapUrl };
+  }
+  if (log.action === "ARRIVE") {
+    return {
+      icon: "✅",
+      title: "現地到着",
+      time,
+      driverName,
+      details: [...(log.castName ? [`キャスト：${log.castName}`] : []), ...(log.destination ? [`目的地：${log.destination}`] : []), `到着予定：${formatClockOnly(log.estimatedArrival)}`, `実際到着：${formatClockOnly(log.actualArrival ?? log.datetime)}`],
+      color: "arrive",
+      mapUrl
+    };
+  }
+  if (log.action === "DROPOFF") {
+    return { icon: "📢", title: "女性降車", time, driverName, details: [...(log.castName ? [`キャスト：${log.castName}`] : []), `降車時間：${formatClockOnly(log.dropoffTime ?? log.datetime)}`], color: "dropoff", mapUrl };
+  }
+  if (log.action === "WAIT_FIELD") {
+    return { icon: "📍", title: "現地待機", time, driverName, details: [`待機開始：${formatClockOnly(log.datetime ?? createdAt)}`], color: "wait", mapUrl };
+  }
+  if (log.action === "WAIT_OFFICE") {
+    return { icon: "🏢", title: "事務所待機", time, driverName, details: [`待機開始：${formatClockOnly(log.datetime ?? createdAt)}`], color: "wait", mapUrl };
+  }
+  if (log.action === "CLOCK_OUT") {
+    return {
+      icon: "🔴",
+      title: "退勤",
+      time,
+      driverName,
+      details: [`稼働時間：${log.workHours ?? "-"}h`, `合計報酬：${money(log.totalPayment)}`],
+      color: "clockout",
+      mapUrl
+    };
+  }
+  return fallback;
+}
+
+function notificationIcon(notification: AdminNotification) {
+  if (notification.severity === "CRITICAL") return "🚨";
+  if (notification.severity === "WARNING") return "⚠️";
+  return notification.category === "BUSINESS" ? "📢" : "ℹ️";
+}
+
+function notificationColor(notification: AdminNotification) {
+  if (notification.category === "SYSTEM") return "system";
+  return "business";
+}
+
+function initialAdminTab(): TabKey {
+  if (typeof window === "undefined") return "dashboard";
+  const params = new URLSearchParams(window.location.search);
+  const tab = params.get("tab") ?? localStorage.getItem("adminActiveTab");
+  return normalizeTabKey(tab) ?? "dashboard";
+}
+
+function normalizeTabKey(value: string | null): TabKey | null {
+  if (isTabKey(value)) return value;
+  const aliases: Record<string, TabKey> = {
+    "today-logs": "today",
+    "all-logs": "history",
+    "clock-outs": "clockOuts",
+    "clock-out-summary": "clockOutSummary",
+    settings: "system"
+  };
+  return value ? aliases[value] ?? null : null;
+}
+
+function tabQueryValue(tab: TabKey) {
+  const values: Record<TabKey, string> = {
+    dashboard: "dashboard",
+    waiting: "waiting",
+    rides: "rides",
+    today: "today-logs",
+    history: "all-logs",
+    clockOuts: "clock-outs",
+    clockOutSummary: "clock-out-summary",
+    drivers: "drivers",
+    notifications: "notifications",
+    system: "settings"
+  };
+  return values[tab];
+}
+
+function isTabKey(value: string | null): value is TabKey {
+  return tabs.some((tab) => tab.key === value);
+}
+
+function shouldToastNotification(notification: AdminNotification) {
+  return notification.category === "BUSINESS" || isClockOutAlertType(notification.type);
+}
+
+function isClockOutAlertType(type: string) {
+  return ["CLOCKOUT_60_MIN_BEFORE", "CLOCKOUT_30_MIN_BEFORE", "CLOCKOUT_15_MIN_BEFORE", "CLOCKOUT_OVER"].includes(type);
+}
+
+function formatClockOnly(value?: string | null) {
+  if (!value) return "未設定";
+  return new Date(value).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
 }
 
 function SeverityBadge({ severity }: { severity: string }) {
@@ -654,8 +1092,14 @@ function statusBadgeClass(status: string) {
 
 function notificationTypeLabel(type: string) {
   if (type === "BUSINESS_ACTION") return "業務通知";
+  if (type === "CLOCK_IN") return "出勤";
+  if (type === "SCHEDULED_CLOCK_OUT_UPDATED") return "退勤予定変更";
   if (type === "ARRIVAL_OVERDUE") return "到着予定超過";
   if (type === "CLOCK_OUT_OVERDUE") return "退勤予定超過";
+  if (type === "CLOCKOUT_60_MIN_BEFORE") return "退勤予定1時間前";
+  if (type === "CLOCKOUT_30_MIN_BEFORE") return "退勤予定30分前";
+  if (type === "CLOCKOUT_15_MIN_BEFORE") return "退勤予定15分前";
+  if (type === "CLOCKOUT_OVER") return "退勤予定超過";
   if (type === "DISCORD_FAILED") return "Discord送信失敗";
   if (type === "SYSTEM_ERROR") return "システムエラー";
   return type;
@@ -666,10 +1110,14 @@ function notificationCategoryLabel(category: string) {
 }
 
 function notificationTypeOptions(category: "BUSINESS" | "SYSTEM") {
-  if (category === "BUSINESS") return [{ value: "BUSINESS_ACTION", label: "業務通知" }];
+  if (category === "BUSINESS") return [{ value: "BUSINESS_ACTION", label: "業務通知" }, { value: "CLOCK_IN", label: "出勤" }, { value: "SCHEDULED_CLOCK_OUT_UPDATED", label: "退勤予定変更" }];
   return [
     { value: "ARRIVAL_OVERDUE", label: "到着予定超過" },
     { value: "CLOCK_OUT_OVERDUE", label: "退勤予定超過" },
+    { value: "CLOCKOUT_60_MIN_BEFORE", label: "退勤予定1時間前" },
+    { value: "CLOCKOUT_30_MIN_BEFORE", label: "退勤予定30分前" },
+    { value: "CLOCKOUT_15_MIN_BEFORE", label: "退勤予定15分前" },
+    { value: "CLOCKOUT_OVER", label: "退勤予定超過" },
     { value: "DISCORD_FAILED", label: "Discord送信失敗" },
     { value: "SYSTEM_ERROR", label: "システムエラー" }
   ];
@@ -697,6 +1145,23 @@ function formatTime(value?: string | null) {
   return new Date(value).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
 }
 
+function formatMonthDayTime(value?: string | null) {
+  if (!value) return "-";
+  return new Date(value).toLocaleString("ja-JP", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+
+function formatDateWithWeekday(value?: string | null) {
+  if (!value) return "-";
+  const date = new Date(String(value).includes("T") ? value : `${value}T00:00:00.000Z`);
+  if (Number.isNaN(date.getTime())) return "-";
+  const tokyo = new Date(date.getTime() + 9 * 60 * 60 * 1000);
+  const weekdays = ["日", "月", "火", "水", "木", "金", "土"];
+  const yyyy = tokyo.getUTCFullYear();
+  const mm = String(tokyo.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(tokyo.getUTCDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}（${weekdays[tokyo.getUTCDay()]}）`;
+}
+
 function formatDateTime(value?: string | null) {
   if (!value) return "-";
   return new Date(value).toLocaleString("ja-JP", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
@@ -710,6 +1175,26 @@ function formatDate(value?: string | null) {
 function money(value?: string | number | null) {
   if (value === null || value === undefined || value === "") return "-";
   return `${Number(value).toLocaleString()}円`;
+}
+
+function formatHours(value?: string | number | null) {
+  return Number(value ?? 0).toFixed(1);
+}
+
+function formatDistance(value?: string | number | null) {
+  return Number(value ?? 0).toFixed(1);
+}
+
+function truncate(value?: string | null, max = 50) {
+  if (!value) return "";
+  return value.length > max ? `${value.slice(0, max)}...` : value;
+}
+
+function todayInputDate() {
+  const now = new Date();
+  const tokyo = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+  if (tokyo.getUTCHours() < 7) tokyo.setUTCDate(tokyo.getUTCDate() - 1);
+  return tokyo.toISOString().slice(0, 10);
 }
 
 function formatGasSettlement(value?: string | null) {

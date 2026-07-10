@@ -2,16 +2,17 @@ import { Prisma, Driver } from "@prisma/client";
 import { ACTIONS, Action, RIDE_TYPES, STATUSES, statusForRideType } from "./constants";
 import { prisma } from "./prisma";
 import { calculateClockOutSettlement } from "./settlement";
-import { getBusinessDate, parseLocalDateTime } from "./time";
+import { formatBusinessDate, getBusinessDate, parseLocalDateTime } from "./time";
 import { sendDiscordForLog } from "./discord";
 import { NOTIFICATION_CATEGORIES, NOTIFICATION_TYPES, createBusinessNotificationForLog, upsertLogNotification } from "./notifications";
 
 export type Actor = { userType: "DRIVER" | "ADMIN"; userId: string };
+export const latestDriverLogOrder = [{ datetime: "desc" as const }, { createdAt: "desc" as const }, { id: "desc" as const }];
 
 export async function getLatestStatusLog(driverId: string, businessDate = getBusinessDate()) {
   return prisma.driverLog.findFirst({
     where: { driverId, businessDate, affectsStatus: true },
-    orderBy: { datetime: "desc" }
+    orderBy: latestDriverLogOrder
   });
 }
 
@@ -23,8 +24,40 @@ export async function getCurrentStatus(driverId: string, businessDate = getBusin
 export async function getLatestRideLog(driverId: string, businessDate = getBusinessDate()) {
   return prisma.driverLog.findFirst({
     where: { driverId, businessDate, action: "START_RIDE" },
-    orderBy: { datetime: "desc" }
+    orderBy: latestDriverLogOrder
   });
+}
+
+export async function getLatestClockInLog(driverId: string, businessDate = getBusinessDate()) {
+  return prisma.driverLog.findFirst({
+    where: { driverId, businessDate, action: "CLOCK_IN", affectsStatus: true },
+    orderBy: latestDriverLogOrder
+  });
+}
+
+export async function getDriverPageState(driver: Driver) {
+  const businessDate = getBusinessDate();
+  const [latestStatusLog, latestRideLog, latestClockInLog, todayLogs] = await Promise.all([
+    getLatestStatusLog(driver.id, businessDate),
+    getLatestRideLog(driver.id, businessDate),
+    getLatestClockInLog(driver.id, businessDate),
+    prisma.driverLog.findMany({
+      where: { driverId: driver.id, businessDate },
+      orderBy: latestDriverLogOrder
+    })
+  ]);
+  const currentStatus = latestStatusLog?.status ?? STATUSES.NOT_WORKING;
+  return {
+    driver,
+    businessDate: formatBusinessDate(businessDate),
+    currentStatus,
+    latestStatusLog,
+    latestRideLog,
+    latestClockInLog,
+    scheduledClockOut: latestClockInLog?.scheduledClockOut ?? null,
+    todayLogs,
+    availableActions: availableActions(currentStatus, latestRideLog?.type)
+  };
 }
 
 export function availableActions(currentStatus: string, latestRideType?: string | null) {
@@ -80,12 +113,12 @@ export async function createDriverLog(params: {
     }
     const type = String(params.input.type ?? "");
     if (!RIDE_TYPES.includes(type as never)) throw new Error("Typeを選択してください。");
-    const destination = text(params.input.destination);
+    const destination = type === "事務所戻り" ? "事務所" : text(params.input.destination);
     if (!destination) throw new Error("目的地は必須です。");
     const travelMinutes = Number(params.input.travelMinutes);
     if (!Number.isInteger(travelMinutes) || travelMinutes < 1) throw new Error("移動時間は1以上の整数で入力してください。");
     const castName = text(params.input.castName);
-    if (["送り", "迎え", "事務所戻り"].includes(type) && !castName) throw new Error("キャスト名は必須です。");
+    if (["送り", "迎え"].includes(type) && !castName) throw new Error("キャスト名は必須です。");
     data = {
       ...base,
       status: statusForRideType(type),
@@ -143,10 +176,7 @@ export async function createDriverLog(params: {
     ensureWorking(currentStatus);
     const dailyReport = text(params.input.dailyReport);
     if (!dailyReport) throw new Error("日報は必須です。");
-    const clockInLog = await prisma.driverLog.findFirst({
-      where: { driverId: params.driver.id, businessDate, action: "CLOCK_IN", affectsStatus: true },
-      orderBy: { datetime: "desc" }
-    });
+    const clockInLog = await getLatestClockInLog(params.driver.id, businessDate);
     if (!clockInLog) throw new Error("出勤ログがありません。");
     if (params.driver.hourlyWage <= 0) throw new Error("時給が設定されていません。");
     const distance = params.input.distance === undefined || params.input.distance === "" ? null : Number(params.input.distance);

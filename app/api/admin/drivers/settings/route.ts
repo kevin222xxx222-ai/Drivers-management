@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma";
 export async function GET() {
   try {
     await requireAdmin();
-    const drivers = await prisma.driver.findMany({ orderBy: [{ displayOrder: "asc" }, { driverName: "asc" }] });
+    const drivers = await prisma.driver.findMany({ where: { deletedAt: null }, orderBy: [{ displayOrder: "asc" }, { driverName: "asc" }] });
     const settings = await Promise.all(
       drivers.map(async (driver) => {
         const lastClockIn = await prisma.driverLog.findFirst({

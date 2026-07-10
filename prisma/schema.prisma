@@ -18,6 +18,8 @@ model Driver {
   gasSettlementType String         @default("INCLUDED") @map("gas_settlement_type") @db.VarChar(20)
   gasType           String?        @map("gas_type") @db.VarChar(50)
   gasRate           Decimal?       @map("gas_rate") @db.Decimal(10, 2)
+  deletedAt         DateTime?      @map("deleted_at")
+  deletedByAdminId  String?        @map("deleted_by_admin_id") @db.Uuid
   createdAt         DateTime       @default(now()) @map("created_at")
   updatedAt         DateTime       @updatedAt @map("updated_at")
   logs              DriverLog[]
@@ -63,6 +65,8 @@ model DriverLog {
   castName            String?          @map("cast_name") @db.VarChar(100)
   destination         String?
   scheduledClockOut   DateTime?        @map("scheduled_clock_out")
+  oldScheduledClockOut DateTime?        @map("old_scheduled_clock_out")
+  newScheduledClockOut DateTime?        @map("new_scheduled_clock_out")
   travelMinutes       Int?             @map("travel_minutes")
   estimatedArrival    DateTime?        @map("estimated_arrival")
   actualArrival       DateTime?        @map("actual_arrival")
@@ -140,12 +144,13 @@ model DriverLogAudit {
 }
 
 model ClockOutAlert {
-  id           String   @id @default(uuid()) @db.Uuid
-  driverId     String   @map("driver_id") @db.Uuid
-  businessDate DateTime @map("business_date") @db.Date
-  phase        String   @db.VarChar(20)
-  sentAt       DateTime @default(now()) @map("sent_at")
+  id                 String   @id @default(uuid()) @db.Uuid
+  driverId           String   @map("driver_id") @db.Uuid
+  businessDate       DateTime @map("business_date") @db.Date
+  scheduledClockOut  DateTime @map("scheduled_clock_out")
+  phase              String   @db.VarChar(20)
+  sentAt             DateTime @default(now()) @map("sent_at")
 
-  @@unique([driverId, businessDate, phase])
+  @@unique([driverId, businessDate, scheduledClockOut, phase])
   @@map("driver_clock_out_alerts")
 }

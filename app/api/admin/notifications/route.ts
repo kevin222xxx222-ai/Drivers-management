@@ -11,7 +11,36 @@ export async function GET(request: Request) {
     const summary = await getNotificationSummary();
     const notifications = await prisma.notification.findMany({
       where,
-      include: { driver: { select: { id: true, driverName: true } } },
+      include: {
+        driver: { select: { id: true, driverName: true } },
+        relatedLog: {
+          select: {
+            id: true,
+            driverId: true,
+            driverName: true,
+            action: true,
+            status: true,
+            type: true,
+            castName: true,
+            destination: true,
+            oldScheduledClockOut: true,
+            newScheduledClockOut: true,
+            estimatedArrival: true,
+            actualArrival: true,
+            dropoffTime: true,
+            clockOutTime: true,
+            scheduledClockOut: true,
+            workHours: true,
+            totalPayment: true,
+            dailyReport: true,
+            memo: true,
+            latitude: true,
+            longitude: true,
+            datetime: true,
+            createdAt: true
+          }
+        }
+      },
       orderBy: { createdAt: "desc" },
       take: 100
     });

@@ -35,14 +35,48 @@ export async function sendDiscordForLog(log: DriverLog) {
   };
 
   try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3_000);
     const response = await fetch(url, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
+      signal: controller.signal
     });
+    clearTimeout(timeout);
     return { sent: response.ok, webhookType: type };
   } catch {
     return { sent: false, webhookType: type };
+  }
+}
+
+export async function sendDiscordNotice(input: {
+  title: string;
+  fields: { name: string; value: string; inline?: boolean }[];
+  color?: number;
+}) {
+  const url = webhookFor("NOTICE");
+  if (!url || !url.startsWith("https://discord.com/api/webhooks/")) return { sent: false, webhookType: "NOTICE" as const };
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3_000);
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        embeds: [{
+          title: input.title,
+          color: input.color ?? 15105570,
+          fields: input.fields,
+          timestamp: new Date().toISOString()
+        }]
+      }),
+      signal: controller.signal
+    });
+    clearTimeout(timeout);
+    return { sent: response.ok, webhookType: "NOTICE" as const };
+  } catch {
+    return { sent: false, webhookType: "NOTICE" as const };
   }
 }
 
@@ -78,7 +112,7 @@ function buildFields(log: DriverLog) {
     { name: "日時", value: formatTokyoDateTime(log.datetime), inline: true },
     { name: "現在ステータス", value: log.status, inline: true }
   ];
-  if (log.scheduledClockOut) fields.push({ name: "退勤予定", value: formatTokyoTime(log.scheduledClockOut), inline: true });
+  if (log.scheduledClockOut) fields.push({ name: "退勤予定", value: formatTokyoDateTime(log.scheduledClockOut), inline: true });
   if (log.castName) fields.push({ name: "キャスト名", value: log.castName, inline: true });
   if (log.destination) fields.push({ name: "目的地", value: log.destination, inline: true });
   if (log.travelMinutes) fields.push({ name: "移動時間", value: `${log.travelMinutes}分`, inline: true });
@@ -91,5 +125,6 @@ function buildFields(log: DriverLog) {
   if (log.totalPayment !== null) fields.push({ name: "合計報酬", value: `${log.totalPayment.toLocaleString()}円`, inline: true });
   if (log.dailyReport) fields.push({ name: "業務報告", value: log.dailyReport, inline: false });
   if (log.memo) fields.push({ name: "メモ", value: log.memo, inline: false });
+  if (log.latitude && log.longitude) fields.push({ name: "GoogleMapを開く", value: `https://maps.google.com/?q=${log.latitude},${log.longitude}`, inline: false });
   return fields;
 }

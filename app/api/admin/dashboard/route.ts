@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth";
+import { latestDriverLogOrder } from "@/lib/driver-service";
 import { prisma } from "@/lib/prisma";
 import { formatBusinessDate, getBusinessDate } from "@/lib/time";
 import { createSystemErrorNotification, getNotificationSummary } from "@/lib/notifications";
@@ -12,7 +13,7 @@ export async function GET() {
     await requireAdmin();
     const businessDate = getBusinessDate();
     const [drivers, notificationSummary] = await Promise.all([
-      prisma.driver.findMany({ orderBy: [{ displayOrder: "asc" }, { driverName: "asc" }] }),
+      prisma.driver.findMany({ where: { deletedAt: null }, orderBy: [{ displayOrder: "asc" }, { driverName: "asc" }] }),
       getNotificationSummary()
     ]);
     const latestLogs = await Promise.all(
@@ -20,7 +21,11 @@ export async function GET() {
         driver,
         latestLog: await prisma.driverLog.findFirst({
           where: { driverId: driver.id, businessDate, affectsStatus: true },
-          orderBy: { datetime: "desc" }
+          orderBy: latestDriverLogOrder
+        }),
+        clockInLog: await prisma.driverLog.findFirst({
+          where: { driverId: driver.id, businessDate, action: "CLOCK_IN", affectsStatus: true },
+          orderBy: latestDriverLogOrder
         })
       }))
     );
@@ -31,19 +36,21 @@ export async function GET() {
     }));
     const waitingDrivers = latestLogs
       .filter(({ latestLog }) => latestLog && WAITING_STATUSES.includes(latestLog.status))
-      .map(({ driver, latestLog }) => ({
+      .map(({ driver, latestLog, clockInLog }) => ({
         driverId: driver.id,
         driverName: driver.driverName,
         status: latestLog!.status,
+        scheduledClockOut: clockInLog?.scheduledClockOut ?? null,
         lastUpdatedAt: latestLog!.datetime,
         memo: latestLog!.memo
       }));
     const activeRideDrivers = latestLogs
       .filter(({ latestLog }) => latestLog && ACTIVE_RIDE_STATUSES.includes(latestLog.status))
-      .map(({ driver, latestLog }) => ({
+      .map(({ driver, latestLog, clockInLog }) => ({
         driverId: driver.id,
         driverName: driver.driverName,
         status: latestLog!.status,
+        scheduledClockOut: clockInLog?.scheduledClockOut ?? null,
         type: latestLog!.type,
         castName: latestLog!.castName,
         destination: latestLog!.destination,
@@ -59,7 +66,7 @@ export async function GET() {
         if (b.estimatedArrival) return 1;
         return a.lastUpdatedAt.getTime() - b.lastUpdatedAt.getTime();
       });
-    const todayLogs = await prisma.driverLog.findMany({ where: { businessDate }, orderBy: { datetime: "desc" }, take: 100 });
+    const todayLogs = await prisma.driverLog.findMany({ where: { businessDate }, orderBy: latestDriverLogOrder, take: 100 });
     return NextResponse.json({
       businessDate: formatBusinessDate(businessDate),
       summary: {
