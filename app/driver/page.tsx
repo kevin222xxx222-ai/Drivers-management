@@ -46,6 +46,7 @@ export default function DriverPage() {
   const [action, setAction] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   const [loading, setLoading] = useState(false);
+  const [processingAction, setProcessingAction] = useState("");
   const [distance, setDistance] = useState("");
   const [preview, setPreview] = useState<any>(null);
   const [scheduleOpen, setScheduleOpen] = useState(false);
@@ -66,7 +67,7 @@ export default function DriverPage() {
   useEffect(() => {
     if (action !== "CLOCK_OUT") return setPreview(null);
     const query = distance ? `?distance=${encodeURIComponent(distance)}` : "";
-    fetch(`/api/driver/clock-out-preview${query}`)
+    fetch(`/api/driver/clock-out-preview${query}`, { cache: "no-store" })
       .then((res) => (res.ok ? res.json() : null))
       .then(setPreview)
       .catch(() => setPreview(null));
@@ -98,26 +99,35 @@ export default function DriverPage() {
     event.preventDefault();
     if (!scheduledClockOut) return setErrorMessage("退勤予定日時を入力してください。");
     if (!window.confirm("退勤予定日時を変更します。よろしいですか？")) return;
+    const startedAt = performance.now();
     setLoading(true);
+    setProcessingAction("UPDATE_SCHEDULED_CLOCK_OUT");
     clearMessages();
     try {
+      const apiStartedAt = performance.now();
       const response = await fetch("/api/driver/scheduled-clock-out", {
         method: "PATCH",
+        cache: "no-store",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ scheduledClockOut })
       });
       const result = await response.json().catch(() => ({}));
+      const apiMs = performance.now() - apiStartedAt;
       if (!response.ok) {
         setErrorMessage(result.error ? `保存できませんでした。${result.error}` : "保存できませんでした。");
         return;
       }
       setScheduleOpen(false);
-      if (result.state) setData(result.state);
-      await load();
+      if (result.state) {
+        setData(result.state);
+        measureCardUpdate("UPDATE_SCHEDULED_CLOCK_OUT", startedAt, apiMs);
+      }
+      void load();
     } catch {
       setErrorMessage("保存できませんでした。通信が完了しませんでした。");
     } finally {
       setLoading(false);
+      setProcessingAction("");
     }
   }
 
@@ -138,20 +148,25 @@ export default function DriverPage() {
   }
 
   async function saveAction(targetAction: string, body: Record<string, FormDataEntryValue> = {}) {
+    const startedAt = performance.now();
     setLoading(true);
+    setProcessingAction(targetAction);
     clearMessages();
     try {
       const location = locationActions.has(targetAction) ? await getLocationPayload() : {};
       const controller = new AbortController();
       const timeout = window.setTimeout(() => controller.abort(), 15_000);
+      const apiStartedAt = performance.now();
       const response = await fetch("/api/driver/logs", {
         method: "POST",
+        cache: "no-store",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ ...body, ...location, action: targetAction }),
         signal: controller.signal
       });
       window.clearTimeout(timeout);
       const result = await response.json().catch(() => ({}));
+      const apiMs = performance.now() - apiStartedAt;
       if (!response.ok) {
         setErrorMessage(result.error ? `保存できませんでした。${result.error}` : "保存できませんでした。");
         return;
@@ -159,18 +174,36 @@ export default function DriverPage() {
       setAction("");
       setScheduleOpen(false);
       setDistance("");
-      if (result.state) setData(result.state);
-      await load();
+      if (result.state) {
+        setData(result.state);
+        measureCardUpdate(targetAction, startedAt, apiMs);
+      }
+      void load();
     } catch {
       setErrorMessage("保存できませんでした。通信が完了しませんでした。");
     } finally {
       setLoading(false);
+      setProcessingAction("");
     }
   }
 
   async function logout() {
-    await fetch("/api/auth/driver-logout", { method: "POST" });
+    await fetch("/api/auth/driver-logout", { method: "POST", cache: "no-store" });
     router.push("/login");
+  }
+
+  function measureCardUpdate(targetAction: string, startedAt: number, apiMs: number) {
+    window.requestAnimationFrame(() => {
+      const totalMs = performance.now() - startedAt;
+      performance.mark(`driver-action-${targetAction}-updated`);
+      if (window.localStorage.getItem("PERFORMANCE_LOGGING") === "true") {
+        console.info("[driver-action]", {
+          action: targetAction,
+          apiMs: Math.round(apiMs),
+          buttonToCardMs: Math.round(totalMs)
+        });
+      }
+    });
   }
 
   if (!data) return <main className="page">読み込み中...</main>;
@@ -196,7 +229,7 @@ export default function DriverPage() {
               </div>
             )}
           </div>
-          {isWorking ? <button className="button danger" onClick={() => openAction("CLOCK_OUT")}>退勤</button> : <button className="button secondary" onClick={logout}>ログアウト</button>}
+          {isWorking ? <button className="button danger" disabled={loading} onClick={() => openAction("CLOCK_OUT")}>{processingAction === "CLOCK_OUT" ? "登録中..." : "退勤"}</button> : <button className="button secondary" onClick={logout}>ログアウト</button>}
         </div>
 
         <StatusGuide data={data} />
@@ -205,7 +238,7 @@ export default function DriverPage() {
           <section className="panel stack">
             <p className="section-label">次の操作</p>
             <div className="main-action-grid">
-              {primaryActions.map((item) => <button key={item} className="button main-action-button" disabled={loading} onClick={() => handleActionClick(item)}>{labels[item]}</button>)}
+              {primaryActions.map((item) => <button key={item} className="button main-action-button" disabled={loading} onClick={() => handleActionClick(item)}>{processingAction === item ? "登録中..." : labels[item]}</button>)}
             </div>
           </section>
         )}
@@ -214,7 +247,7 @@ export default function DriverPage() {
           <section className="panel stack compact-panel">
             <p className="section-label">その他の操作</p>
             <div className="action-grid">
-              {subActions.map((item) => <button key={item} className="button secondary" disabled={loading} onClick={() => handleActionClick(item)}>{labels[item]}</button>)}
+              {subActions.map((item) => <button key={item} className="button secondary" disabled={loading} onClick={() => handleActionClick(item)}>{processingAction === item ? "登録中..." : labels[item]}</button>)}
             </div>
           </section>
         )}
@@ -229,7 +262,7 @@ export default function DriverPage() {
               <ActionFields action={action} gasSettlementType={data.driver.gasSettlementType} distance={distance} setDistance={setDistance} rideType={rideType} setRideType={setRideType} />
               {preview && <SettlementPreview preview={preview} />}
               <div className="modal-actions">
-                <button className="button" disabled={loading} type="submit">{loading ? "保存中..." : "登録"}</button>
+                <button className="button" disabled={loading} type="submit">{processingAction === action ? "登録中..." : "登録"}</button>
               </div>
             </form>
           </FormModal>
@@ -240,7 +273,7 @@ export default function DriverPage() {
             <form className="stack modal-form" onSubmit={saveScheduledClockOut}>
               <label>退勤予定日時<input type="datetime-local" required value={scheduledClockOut} onChange={(event) => setScheduledClockOut(event.target.value)} /></label>
               <div className="modal-actions">
-                <button className="button" disabled={loading} type="submit">{loading ? "保存中..." : "保存"}</button>
+                <button className="button" disabled={loading} type="submit">{processingAction === "UPDATE_SCHEDULED_CLOCK_OUT" ? "登録中..." : "保存"}</button>
               </div>
             </form>
           </FormModal>
