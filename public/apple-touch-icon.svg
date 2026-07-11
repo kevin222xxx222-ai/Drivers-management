@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 180" role="img" aria-label="WOMANS GROUP">
+  <rect width="180" height="180" rx="34" fill="#ffffff"/>
+  <rect x="10" y="10" width="160" height="160" rx="27" fill="none" stroke="#102033" stroke-width="8"/>
+  <text x="90" y="91" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="50" font-weight="900" fill="#102033" letter-spacing="-2">WG</text>
+  <text x="90" y="123" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#0f766e" letter-spacing="1.6">WOMANS</text>
+  <text x="90" y="144" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#0f766e" letter-spacing="1.6">GROUP</text>
+</svg>

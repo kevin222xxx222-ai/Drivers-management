@@ -4,12 +4,17 @@ import AppSplashScreen from "@/components/AppSplashScreen";
 import ServiceWorkerRegister from "@/components/ServiceWorkerRegister";
 
 export const metadata: Metadata = {
-  title: "ドライバー業務管理",
-  description: "Google非依存のドライバー業務管理Webアプリ",
+  title: "WOMANS GROUP Driver Management System",
+  description: "WOMANS GROUP社内利用専用のDriver Management Systemです。",
   manifest: "/manifest.json",
+  icons: {
+    icon: "/favicon.svg",
+    shortcut: "/favicon.svg",
+    apple: "/apple-touch-icon.svg"
+  },
   appleWebApp: {
     capable: true,
-    title: "運行管理",
+    title: "WOMANS GROUP",
     statusBarStyle: "black-translucent"
   }
 };

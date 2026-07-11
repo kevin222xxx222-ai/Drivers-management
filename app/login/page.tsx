@@ -37,8 +37,11 @@ export default function DriverLoginPage() {
     <main className="login-shell">
       <form className="panel login-card stack" onSubmit={submit}>
         <div className="stack">
-          <h1>ドライバーログイン</h1>
-          <p className="muted">ドライバー名を選択してください</p>
+          <div className="login-brand">
+            <h1>WOMANS GROUP</h1>
+            <p className="login-subtitle">Driver Management System</p>
+          </div>
+          <p className="login-description">社内利用専用システムです。<br />登録済みドライバーのみ利用できます。</p>
         </div>
         <label>
           ドライバー名
@@ -54,6 +57,11 @@ export default function DriverLoginPage() {
         {error && <p className="error">{error}</p>}
         <button className="button" type="submit">ログイン</button>
         <Link className="muted" href="/admin/login">管理者ログイン</Link>
+        <footer className="login-footer">
+          <span>© WOMANS GROUP</span>
+          <span>Driver Management System</span>
+          <span>Internal Use Only</span>
+        </footer>
       </form>
     </main>
   );

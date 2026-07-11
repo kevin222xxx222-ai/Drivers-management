@@ -1,11 +1,11 @@
 {
-  "name": "ドライバー運行管理",
-  "short_name": "運行管理",
-  "description": "配車室・ドライバー向け運行管理システム",
+  "name": "WOMANS GROUP Driver Management System",
+  "short_name": "WOMANS GROUP",
+  "description": "WOMANS GROUP社内利用専用のDriver Management Systemです。",
   "start_url": "/admin",
   "scope": "/",
   "display": "standalone",
-  "background_color": "#f4f6f8",
+  "background_color": "#f8fafc",
   "theme_color": "#102033",
   "icons": [
     {

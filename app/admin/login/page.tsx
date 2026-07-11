@@ -29,7 +29,11 @@ export default function AdminLoginPage() {
     <main className="login-shell">
       <form className="panel login-card stack" onSubmit={submit}>
         <div className="stack">
-          <h1>管理者ログイン</h1>
+          <div className="login-brand">
+            <h1>WOMANS GROUP</h1>
+            <p className="login-subtitle">運行管理システム 管理者ページ</p>
+          </div>
+          <p className="login-description">社内利用専用システムです。</p>
         </div>
         <label>
           AdminID
@@ -42,6 +46,11 @@ export default function AdminLoginPage() {
         {error && <p className="error">{error}</p>}
         <button className="button" type="submit">ログイン</button>
         <Link className="muted" href="/login">ドライバーログイン</Link>
+        <footer className="login-footer">
+          <span>© WOMANS GROUP</span>
+          <span>Driver Management System</span>
+          <span>Internal Use Only</span>
+        </footer>
       </form>
     </main>
   );

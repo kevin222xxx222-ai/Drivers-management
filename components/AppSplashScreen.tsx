@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-const minimumDisplayMs = 420;
+const minimumDisplayMs = 900;
 const fadeMs = 180;
 const storageKey = "driver-management-pwa-splash-shown";
 
@@ -32,7 +32,7 @@ export default function AppSplashScreen() {
       window.addEventListener("load", finish, { once: true });
     }
 
-    const fallback = window.setTimeout(finish, 2500);
+    const fallback = window.setTimeout(finish, 1200);
     return () => {
       window.removeEventListener("load", finish);
       window.clearTimeout(fallback);
@@ -44,17 +44,10 @@ export default function AppSplashScreen() {
   return (
     <div className={`app-splash${leaving ? " app-splash-hide" : ""}`} aria-label="アプリを読み込み中">
       <div className="app-splash-logo" aria-hidden="true">
-        <span className="app-splash-pin">●</span>
-        <span className="app-splash-car">▰</span>
+        <span>WG</span>
       </div>
-      <p className="app-splash-title">運行モニター</p>
-      <p className="app-splash-subtitle">ドライバー業務管理</p>
-      <div className="app-splash-loading">
-        <span />
-        <span />
-        <span />
-      </div>
-      <p className="app-splash-caption">読み込み中...</p>
+      <p className="app-splash-title">WOMANS GROUP</p>
+      <p className="app-splash-subtitle">Driver Management System</p>
     </div>
   );
 }
