@@ -1,6 +1,6 @@
-const CACHE_NAME = "driver-management-v4";
+const CACHE_NAME = "driver-management-v5";
 const OFFLINE_URL = "/offline.html";
-const PRECACHE_URLS = [OFFLINE_URL, "/manifest.json", "/favicon.svg", "/apple-touch-icon.svg", "/icon-192.svg", "/icon-512.svg"];
+const PRECACHE_URLS = [OFFLINE_URL, "/manifest.json", "/favicon.png", "/favicon.svg", "/apple-touch-icon.png", "/apple-touch-icon.svg", "/icon-192.png", "/icon-512.png", "/icon-192.svg", "/icon-512.svg"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(

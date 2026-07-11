@@ -8,9 +8,9 @@ export const metadata: Metadata = {
   description: "WOMANS GROUP社内利用専用のDriver Management Systemです。",
   manifest: "/manifest.json",
   icons: {
-    icon: "/favicon.svg",
-    shortcut: "/favicon.svg",
-    apple: "/apple-touch-icon.svg"
+    icon: [{ url: "/favicon.png", type: "image/png" }, { url: "/favicon.svg", type: "image/svg+xml" }],
+    shortcut: "/favicon.png",
+    apple: "/apple-touch-icon.png"
   },
   appleWebApp: {
     capable: true,

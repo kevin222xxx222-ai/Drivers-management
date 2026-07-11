@@ -7,6 +7,7 @@ export default function ServiceWorkerRegister() {
     if (!("serviceWorker" in navigator)) return;
     let refreshing = false;
     installServerActionMismatchGuard();
+    installPwaInstallDiagnostics();
 
     navigator.serviceWorker.addEventListener("controllerchange", () => {
       if (refreshing) return;
@@ -38,6 +39,30 @@ export default function ServiceWorkerRegister() {
 function promptForReload(worker: ServiceWorker) {
   const confirmed = window.confirm("新しいバージョンがあります。画面を再読み込みして更新しますか？");
   if (confirmed) worker.postMessage({ type: "SKIP_WAITING" });
+}
+
+function installPwaInstallDiagnostics() {
+  if ((window as Window & { __pwaInstallDiagnostics?: boolean }).__pwaInstallDiagnostics) return;
+  (window as Window & { __pwaInstallDiagnostics?: boolean }).__pwaInstallDiagnostics = true;
+  const debug = new URLSearchParams(window.location.search).get("pwaDebug") === "1" || localStorage.getItem("PWA_DEBUG") === "true";
+  const log = (message: string, data?: unknown) => {
+    if (debug) console.info(`[pwa] ${message}`, data ?? "");
+  };
+
+  log("diagnostics enabled", {
+    standalone: window.matchMedia("(display-mode: standalone)").matches,
+    serviceWorker: "serviceWorker" in navigator,
+    protocol: window.location.protocol
+  });
+
+  window.addEventListener("beforeinstallprompt", (event) => {
+    (window as Window & { __pwaInstallPromptEvent?: Event }).__pwaInstallPromptEvent = event;
+    log("beforeinstallprompt fired");
+  });
+
+  window.addEventListener("appinstalled", () => {
+    log("appinstalled fired");
+  });
 }
 
 function installServerActionMismatchGuard() {
