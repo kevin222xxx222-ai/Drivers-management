@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireDriver } from "@/lib/auth";
+import { webhookTypeForAction } from "@/lib/discord";
+import { enqueueDiscordJobForLog } from "@/lib/discord-jobs";
 import { getCurrentStatus, getDriverPageState, getLatestClockInLog } from "@/lib/driver-service";
 import { NOTIFICATION_TYPES, createBusinessNotificationForLog } from "@/lib/notifications";
 import { prisma } from "@/lib/prisma";
@@ -48,7 +50,12 @@ export async function PATCH(request: Request) {
     await prisma.notification.deleteMany({
       where: { type: NOTIFICATION_TYPES.CLOCK_OUT_OVERDUE, relatedLogId: clockInLog.id }
     });
-    await createBusinessNotificationForLog(changeLog);
+    await prisma.driverLog.update({
+      where: { id: changeLog.id },
+      data: { discordWebhookType: webhookTypeForAction(changeLog.action), discordSent: false, discordSentAt: null }
+    });
+    const notification = await createBusinessNotificationForLog(changeLog);
+    await enqueueDiscordJobForLog(changeLog, notification?.id ?? null);
 
     const state = await getDriverPageState(user.driver);
     return NextResponse.json({ success: true, scheduledClockOut, log: changeLog, state });

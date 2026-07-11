@@ -37,7 +37,7 @@ export async function scanOperationalNotifications() {
   const now = new Date();
   const businessDate = getBusinessDate(now);
 
-  const [arrivalLogs, clockInLogs, discordFailedLogs] = await Promise.all([
+  const [arrivalLogs, clockInLogs, discordFailedJobs] = await Promise.all([
     prisma.driverLog.findMany({
       where: {
         businessDate,
@@ -61,14 +61,12 @@ export async function scanOperationalNotifications() {
       orderBy: { scheduledClockOut: "asc" },
       take: 100
     }),
-    prisma.driverLog.findMany({
+    prisma.discordJob.findMany({
       where: {
-        businessDate,
-        discordSent: false,
-        discordWebhookType: { not: null }
+        status: "FAILED",
+        eventLogId: { not: null }
       },
-      include: { driver: true },
-      orderBy: latestDriverLogOrder,
+      orderBy: { failedAt: "desc" },
       take: 100
     })
   ]);
@@ -90,8 +88,11 @@ export async function scanOperationalNotifications() {
   await Promise.all(clockInLogs.map((clockInLog) => scanClockOutAlert(clockInLog, businessDate, now)));
 
   await Promise.all(
-    discordFailedLogs.map((log) =>
-      upsertLogNotification({
+    discordFailedJobs.map(async (job) => {
+      if (!job.eventLogId) return null;
+      const log = await prisma.driverLog.findUnique({ where: { id: job.eventLogId } });
+      if (!log) return null;
+      return upsertLogNotification({
         type: NOTIFICATION_TYPES.DISCORD_FAILED,
         category: NOTIFICATION_CATEGORIES.SYSTEM,
         severity: "CRITICAL",
@@ -99,8 +100,8 @@ export async function scanOperationalNotifications() {
         message: `${log.driverName} / ${log.action}`,
         driverId: log.driverId,
         relatedLogId: log.id
-      })
-    )
+      });
+    })
   );
 }
 

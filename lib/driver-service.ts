@@ -3,8 +3,9 @@ import { ACTIONS, Action, RIDE_TYPES, STATUSES, statusForRideType } from "./cons
 import { prisma } from "./prisma";
 import { calculateClockOutSettlement } from "./settlement";
 import { formatBusinessDate, getBusinessDate, parseLocalDateTime } from "./time";
-import { sendDiscordForLog } from "./discord";
-import { NOTIFICATION_CATEGORIES, NOTIFICATION_TYPES, createBusinessNotificationForLog, upsertLogNotification } from "./notifications";
+import { webhookTypeForAction } from "./discord";
+import { enqueueDiscordJobForLog } from "./discord-jobs";
+import { createBusinessNotificationForLog } from "./notifications";
 
 export type Actor = { userType: "DRIVER" | "ADMIN"; userId: string };
 export const latestDriverLogOrder = [{ datetime: "desc" as const }, { createdAt: "desc" as const }, { id: "desc" as const }];
@@ -164,7 +165,9 @@ export async function createDriverLog(params: {
       ...base,
       status: action === "WAIT_FIELD" ? STATUSES.WAIT_FIELD : STATUSES.WAIT_OFFICE,
       waitPlace: action === "WAIT_FIELD" ? "現地" : "事務所",
-      destination: null,
+      destination: action === "WAIT_FIELD" ? latestRide?.destination ?? null : null,
+      castName: action === "WAIT_FIELD" ? latestRide?.castName ?? null : null,
+      type: action === "WAIT_FIELD" ? latestRide?.type ?? null : null,
       estimatedArrival: null,
       memo: text(params.input.memo),
       affectsStatus: true
@@ -212,29 +215,17 @@ export async function createDriverLog(params: {
   }
 
   const log = await prisma.driverLog.create({ data });
-  const discord = await sendDiscordForLog(log);
   const updated = await prisma.driverLog.update({
     where: { id: log.id },
     data: {
-      discordSent: discord.sent,
-      discordSentAt: discord.sent ? new Date() : null,
-      discordWebhookType: discord.webhookType
+      discordSent: false,
+      discordSentAt: null,
+      discordWebhookType: webhookTypeForAction(log.action)
     }
   });
 
-  await createBusinessNotificationForLog(updated);
-
-  if (!discord.sent && discord.webhookType) {
-    await upsertLogNotification({
-      type: NOTIFICATION_TYPES.DISCORD_FAILED,
-      category: NOTIFICATION_CATEGORIES.SYSTEM,
-      severity: "CRITICAL",
-      title: "Discord送信失敗",
-      message: `${updated.driverName} / ${action}`,
-      driverId: updated.driverId,
-      relatedLogId: updated.id
-    });
-  }
+  const notification = await createBusinessNotificationForLog(updated);
+  await enqueueDiscordJobForLog(updated, notification?.id ?? null);
 
   return updated;
 }

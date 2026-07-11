@@ -129,6 +129,27 @@ model Notification {
   @@map("notifications")
 }
 
+model DiscordJob {
+  id             String    @id @default(cuid())
+  notificationId String?   @map("notification_id") @db.Uuid
+  eventLogId     String?   @map("event_log_id") @db.Uuid
+  webhookType    String    @map("webhook_type") @db.VarChar(20)
+  payload        Json
+  status         String    @default("PENDING") @db.VarChar(20)
+  attemptCount   Int       @default(0) @map("attempt_count")
+  maxAttempts    Int       @default(5) @map("max_attempts")
+  nextAttemptAt  DateTime  @default(now()) @map("next_attempt_at")
+  lockedAt       DateTime? @map("locked_at")
+  sentAt         DateTime? @map("sent_at")
+  failedAt       DateTime? @map("failed_at")
+  lastError      String?   @map("last_error")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  @@index([status, nextAttemptAt])
+  @@map("discord_jobs")
+}
+
 model DriverLogAudit {
   id              String    @id @default(uuid()) @db.Uuid
   driverLogId     String    @map("driver_log_id") @db.Uuid
