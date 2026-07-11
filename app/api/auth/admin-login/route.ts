@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { verifyPassword } from "@/lib/password";
 import { createSession } from "@/lib/auth";
+import { noStoreHeaders } from "@/lib/http";
 
 const attempts = new Map<string, { count: number; resetAt: number }>();
 const WINDOW_MS = 10 * 60 * 1000;
@@ -10,7 +11,7 @@ const MAX_ATTEMPTS = 10;
 export async function POST(request: Request) {
   const key = clientKey(request);
   if (isRateLimited(key)) {
-    return NextResponse.json({ success: false, error: "ログイン情報が正しくありません。" }, { status: 429 });
+    return NextResponse.json({ success: false, error: "ログイン情報が正しくありません。" }, { status: 429, headers: noStoreHeaders });
   }
   const body = await request.json();
   const adminId = String(body.adminId ?? "").trim();
@@ -18,11 +19,11 @@ export async function POST(request: Request) {
   const admin = await prisma.admin.findUnique({ where: { adminId } });
   if (!admin?.isActive || !verifyPassword(password, admin.passwordHash)) {
     recordFailedAttempt(key);
-    return NextResponse.json({ success: false, error: "ログイン情報が正しくありません。" }, { status: 401 });
+    return NextResponse.json({ success: false, error: "ログイン情報が正しくありません。" }, { status: 401, headers: noStoreHeaders });
   }
   attempts.delete(key);
   await createSession("ADMIN", admin.id);
-  return NextResponse.json({ success: true, userType: "ADMIN", adminId: admin.adminId });
+  return NextResponse.json({ success: true, userType: "ADMIN", adminId: admin.adminId }, { headers: noStoreHeaders });
 }
 
 function clientKey(request: Request) {

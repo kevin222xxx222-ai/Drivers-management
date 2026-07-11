@@ -1,0 +1,4 @@
+export const noStoreHeaders = {
+  "Cache-Control": "no-store, no-cache, must-revalidate",
+  "Pragma": "no-cache"
+};

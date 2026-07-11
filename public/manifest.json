@@ -2,7 +2,7 @@
   "name": "WOMANS GROUP Driver Management System",
   "short_name": "WOMANS GROUP",
   "description": "WOMANS GROUP社内利用専用のDriver Management Systemです。",
-  "start_url": "/admin",
+  "start_url": "/login",
   "scope": "/",
   "display": "standalone",
   "background_color": "#f8fafc",

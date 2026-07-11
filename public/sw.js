@@ -1,4 +1,4 @@
-const CACHE_NAME = "driver-management-v3";
+const CACHE_NAME = "driver-management-v4";
 const OFFLINE_URL = "/offline.html";
 const PRECACHE_URLS = [OFFLINE_URL, "/manifest.json", "/favicon.svg", "/apple-touch-icon.svg", "/icon-192.svg", "/icon-512.svg"];
 

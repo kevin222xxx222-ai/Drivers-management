@@ -8,13 +8,38 @@ export default function DriverLoginPage() {
   const router = useRouter();
   const [error, setError] = useState("");
   const [drivers, setDrivers] = useState<{ id: string; driverName: string }[]>([]);
+  const [authChecking, setAuthChecking] = useState(true);
 
   useEffect(() => {
-    fetch("/api/public/drivers", { cache: "no-store" })
-      .then((response) => response.ok ? response.json() : [])
-      .then(setDrivers)
-      .catch(() => setDrivers([]));
-  }, []);
+    let active = true;
+    async function initialize() {
+      try {
+        const me = await fetch("/api/me?type=DRIVER", { cache: "no-store", credentials: "same-origin" });
+        if (!active) return;
+        if (me.ok) {
+          const user = await me.json();
+          if (user.userType === "DRIVER") {
+            router.replace("/driver");
+            return;
+          }
+        }
+      } catch {
+        // Continue to the login form when auth status cannot be confirmed.
+      }
+      try {
+        const response = await fetch("/api/public/drivers", { cache: "no-store", credentials: "same-origin" });
+        if (active) setDrivers(response.ok ? await response.json() : []);
+      } catch {
+        if (active) setDrivers([]);
+      } finally {
+        if (active) setAuthChecking(false);
+      }
+    }
+    initialize();
+    return () => {
+      active = false;
+    };
+  }, [router]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -22,6 +47,8 @@ export default function DriverLoginPage() {
     const form = new FormData(event.currentTarget);
     const response = await fetch("/api/auth/driver-login", {
       method: "POST",
+      cache: "no-store",
+      credentials: "same-origin",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         driverId: form.get("driverId"),
@@ -43,20 +70,26 @@ export default function DriverLoginPage() {
           </div>
           <p className="login-description">社内利用専用システムです。<br />登録済みドライバーのみ利用できます。</p>
         </div>
-        <label>
-          ドライバー名
-          <select name="driverId" autoComplete="username" required defaultValue="">
-            <option value="" disabled>選択してください</option>
-            {drivers.map((driver) => <option key={driver.id} value={driver.id}>{driver.driverName}</option>)}
-          </select>
-        </label>
-        <label>
-          PIN（電話番号下4桁）
-          <input name="pin" type="password" inputMode="numeric" autoComplete="current-password" placeholder="電話番号下4桁を入力" required />
-        </label>
-        {error && <p className="error">{error}</p>}
-        <button className="button" type="submit">ログイン</button>
-        <Link className="muted" href="/admin/login">管理者ログイン</Link>
+        {authChecking ? (
+          <p className="muted">ログイン状態を確認中です...</p>
+        ) : (
+          <>
+            <label>
+              ドライバー名
+              <select name="driverId" autoComplete="username" required defaultValue="">
+                <option value="" disabled>選択してください</option>
+                {drivers.map((driver) => <option key={driver.id} value={driver.id}>{driver.driverName}</option>)}
+              </select>
+            </label>
+            <label>
+              PIN（電話番号下4桁）
+              <input name="pin" type="password" inputMode="numeric" autoComplete="current-password" placeholder="電話番号下4桁を入力" required />
+            </label>
+            {error && <p className="error">{error}</p>}
+            <button className="button" type="submit">ログイン</button>
+            <Link className="muted" href="/admin/login">管理者ログイン</Link>
+          </>
+        )}
         <footer className="login-footer">
           <span>© WOMANS GROUP</span>
           <span>Driver Management System</span>
