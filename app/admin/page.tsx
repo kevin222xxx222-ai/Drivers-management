@@ -3,6 +3,7 @@
 import React, { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { buildNotificationDisplay as buildNotificationDisplayView } from "@/lib/notification-view";
+import { formatBusinessDate as formatBusinessDateValue, getBusinessDate } from "@/lib/time";
 
 type TabKey = "dashboard" | "waiting" | "rides" | "today" | "history" | "clockOuts" | "clockOutSummary" | "drivers" | "notifications" | "system";
 type Dashboard = {
@@ -79,7 +80,10 @@ const actionLabels: Record<string, string> = {
   UPDATE_SCHEDULED_CLOCK_OUT: "退勤予定変更",
   MAIL_CONFIRM_SEND: "送りメール確認",
   MAIL_CONFIRM_PICKUP: "迎えメール確認",
-  ADMIN_STATUS_CORRECTION: "管理者代理修正"
+  ADMIN_STATUS_CORRECTION: "管理者代理修正",
+  ADMIN_CLOCK_IN_CORRECTION: "管理者出勤時刻修正",
+  ADMIN_WORK_TIME_CORRECTION: "管理者勤務時間修正",
+  ADMIN_PROXY_CLOCK_OUT: "管理者代理退勤"
 };
 
 const correctableStatuses = ["出勤中", "送り中", "迎え中", "戻り中", "その他", "現地到着", "女性降車済み", "現地待機", "事務所待機"];
@@ -102,6 +106,8 @@ export default function AdminPage() {
   const [logDeleteMode, setLogDeleteMode] = useState(false);
   const [selectedDriver, setSelectedDriver] = useState<any | null>(null);
   const [statusCorrectionTarget, setStatusCorrectionTarget] = useState<any | null>(null);
+  const [workTimeTarget, setWorkTimeTarget] = useState<any | null>(null);
+  const [proxyClockOutTarget, setProxyClockOutTarget] = useState<any | null>(null);
   const [addingDriver, setAddingDriver] = useState(false);
   const [historySearchOpen, setHistorySearchOpen] = useState(false);
   const [notifications, setNotifications] = useState<AdminNotification[]>([]);
@@ -352,6 +358,51 @@ export default function AdminPage() {
     if (activeTab === "history") await loadHistory(history.page);
   }
 
+  async function submitWorkTimeCorrection(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!workTimeTarget) return;
+    const form = new FormData(event.currentTarget);
+    const response = await fetch(`/api/admin/drivers/${workTimeTarget.driverId}/correct-work-time`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        clockOutLogId: workTimeTarget.id,
+        clockInAt: form.get("clockInAt"),
+        clockOutAt: form.get("clockOutAt"),
+        reason: form.get("reason"),
+        expectedUpdatedAt: workTimeTarget.lastUpdatedAt ?? workTimeTarget.updatedAt
+      })
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) return setMessage(`勤務時間修正に失敗しました。${result.error ? ` ${result.error}` : ""}`);
+    setMessage("");
+    setWorkTimeTarget(null);
+    await Promise.all([loadDashboard(), loadToday(), loadHistory(history.page), loadClockOuts(), loadClockOutSummary()]);
+  }
+
+  async function submitProxyClockOut(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!proxyClockOutTarget) return;
+    const form = new FormData(event.currentTarget);
+    const response = await fetch(`/api/admin/drivers/${proxyClockOutTarget.driverId}/proxy-clock-out`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        clockOutAt: form.get("clockOutAt"),
+        gasDistance: form.get("gasDistance"),
+        dailyReportMemo: form.get("dailyReportMemo"),
+        reason: form.get("reason"),
+        expectedStatus: proxyClockOutTarget.status,
+        expectedUpdatedAt: proxyClockOutTarget.lastUpdatedAt
+      })
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) return setMessage(`代理退勤に失敗しました。${result.error ? ` ${result.error}` : ""}`);
+    setMessage("");
+    setProxyClockOutTarget(null);
+    await Promise.all([loadDashboard(), loadToday(), loadHistory(history.page), loadClockOuts(), loadClockOutSummary(), loadNotifications()]);
+  }
+
   async function toggleNotificationCenter() {
     const nextOpen = !notificationOpen;
     setNotificationOpen(nextOpen);
@@ -412,9 +463,9 @@ export default function AdminPage() {
         {message && <p className={message.includes("失敗") ? "error" : "success"}>{message}</p>}
         {!dashboard ? <div className="panel">読み込み中...</div> : (
           <>
-            {activeTab === "dashboard" && <DashboardView dashboard={dashboard} onCorrectStatus={setStatusCorrectionTarget} />}
-            {activeTab === "waiting" && <WaitingTable rows={dashboard.waitingDrivers} onCorrectStatus={setStatusCorrectionTarget} />}
-            {activeTab === "rides" && <RideTable rows={dashboard.activeRideDrivers} onCorrectStatus={setStatusCorrectionTarget} />}
+            {activeTab === "dashboard" && <DashboardView dashboard={dashboard} onCorrectStatus={setStatusCorrectionTarget} onCorrectWorkTime={setWorkTimeTarget} onProxyClockOut={setProxyClockOutTarget} />}
+            {activeTab === "waiting" && <WaitingTable rows={dashboard.waitingDrivers} onCorrectStatus={setStatusCorrectionTarget} onCorrectWorkTime={setWorkTimeTarget} onProxyClockOut={setProxyClockOutTarget} />}
+            {activeTab === "rides" && <RideTable rows={dashboard.activeRideDrivers} onCorrectStatus={setStatusCorrectionTarget} onCorrectWorkTime={setWorkTimeTarget} onProxyClockOut={setProxyClockOutTarget} />}
             {activeTab === "today" && (
               <LogTable
                 logs={todayLogs.length ? todayLogs : dashboard.todayLogs}
@@ -447,7 +498,7 @@ export default function AdminPage() {
                 onDeleteSelected={deleteSelectedLogs}
               />
             )}
-            {activeTab === "clockOuts" && <ClockOutTable logs={clockOuts} />}
+            {activeTab === "clockOuts" && <ClockOutTable logs={clockOuts} onCorrectWorkTime={setWorkTimeTarget} />}
             {activeTab === "clockOutSummary" && (
               <ClockOutSummaryView
                 drivers={dashboard.drivers}
@@ -484,11 +535,13 @@ export default function AdminPage() {
       {selectedDriver && <DriverModal driver={selectedDriver} onClose={() => setSelectedDriver(null)} onSave={saveDriver} onToggleActive={(isActive) => setDriverActive(selectedDriver, isActive)} onDelete={() => deleteDriver(selectedDriver)} />}
       {addingDriver && <AddDriverModal onClose={() => setAddingDriver(false)} onSave={addDriver} />}
       {statusCorrectionTarget && <StatusCorrectionModal target={statusCorrectionTarget} onClose={() => setStatusCorrectionTarget(null)} onSave={submitStatusCorrection} />}
+      {workTimeTarget && <WorkTimeCorrectionModal target={workTimeTarget} onClose={() => setWorkTimeTarget(null)} onSave={submitWorkTimeCorrection} />}
+      {proxyClockOutTarget && <ProxyClockOutModal target={proxyClockOutTarget} onClose={() => setProxyClockOutTarget(null)} onSave={submitProxyClockOut} />}
     </main>
   );
 }
 
-function DashboardView({ dashboard, onCorrectStatus }: { dashboard: Dashboard; onCorrectStatus: (row: any) => void }) {
+function DashboardView({ dashboard, onCorrectStatus, onCorrectWorkTime, onProxyClockOut }: { dashboard: Dashboard; onCorrectStatus: (row: any) => void; onCorrectWorkTime: (row: any) => void; onProxyClockOut: (row: any) => void }) {
   return (
     <div className="monitor-stack">
       <div className="summary-grid">
@@ -496,8 +549,8 @@ function DashboardView({ dashboard, onCorrectStatus }: { dashboard: Dashboard; o
         <Summary label="送迎中" value={dashboard.summary.activeRideCount} />
       </div>
       <div className="dashboard-list-grid">
-        <section className="monitor-panel dashboard-waiting"><h3>出勤・待機中一覧</h3><WaitingTable rows={dashboard.waitingDrivers} onCorrectStatus={onCorrectStatus} /></section>
-        <section className="monitor-panel dashboard-rides"><h3>送迎中一覧</h3><RideTable rows={dashboard.activeRideDrivers} onCorrectStatus={onCorrectStatus} /></section>
+        <section className="monitor-panel dashboard-waiting"><h3>出勤・待機中一覧</h3><WaitingTable rows={dashboard.waitingDrivers} onCorrectStatus={onCorrectStatus} onCorrectWorkTime={onCorrectWorkTime} onProxyClockOut={onProxyClockOut} /></section>
+        <section className="monitor-panel dashboard-rides"><h3>送迎中一覧</h3><RideTable rows={dashboard.activeRideDrivers} onCorrectStatus={onCorrectStatus} onCorrectWorkTime={onCorrectWorkTime} onProxyClockOut={onProxyClockOut} /></section>
       </div>
     </div>
   );
@@ -507,26 +560,39 @@ function Summary({ label, value }: { label: string; value: React.ReactNode }) {
   return <div className="summary-box"><span>{label}</span><strong>{value}</strong></div>;
 }
 
-function WaitingTable({ rows, compact = false, onCorrectStatus }: { rows: any[]; compact?: boolean; onCorrectStatus?: (row: any) => void }) {
+function WaitingTable({ rows, compact = false, onCorrectStatus, onCorrectWorkTime, onProxyClockOut }: { rows: any[]; compact?: boolean; onCorrectStatus?: (row: any) => void; onCorrectWorkTime?: (row: any) => void; onProxyClockOut?: (row: any) => void }) {
   return (
     <Table empty="出勤・待機中のドライバーはいません。" tableClassName="monitor-table waiting-table" wrapperClassName="table-scroll waiting-table-wrapper">
       <thead><tr><th>状態</th><th>ドライバー名</th><th>最終更新</th>{!compact && <th>メモ</th>}{onCorrectStatus && <th>操作</th>}</tr></thead>
-      <tbody>{rows.map((row) => <tr key={row.driverId}><td><StatusBadge status={row.status} /></td><td>{row.driverName}</td><td>{formatTime(row.lastUpdatedAt)}</td>{!compact && <td className="memo-cell">{row.memo ?? ""}</td>}{onCorrectStatus && <td><button className="button secondary admin-status-correct-button" type="button" onClick={() => onCorrectStatus(row)}>状態修正</button></td>}</tr>)}</tbody>
+      <tbody>{rows.map((row) => <tr key={row.driverId}><td><StatusBadge status={row.status} /></td><td>{row.driverName}</td><td>{formatTime(row.lastUpdatedAt)}</td>{!compact && <td className="memo-cell">{row.memo ?? ""}</td>}{onCorrectStatus && <td><AdminDriverActions row={row} onCorrectStatus={onCorrectStatus} onCorrectWorkTime={onCorrectWorkTime} onProxyClockOut={onProxyClockOut} /></td>}</tr>)}</tbody>
     </Table>
   );
 }
 
-function RideTable({ rows, compact = false, onCorrectStatus }: { rows: any[]; compact?: boolean; onCorrectStatus?: (row: any) => void }) {
+function RideTable({ rows, compact = false, onCorrectStatus, onCorrectWorkTime, onProxyClockOut }: { rows: any[]; compact?: boolean; onCorrectStatus?: (row: any) => void; onCorrectWorkTime?: (row: any) => void; onProxyClockOut?: (row: any) => void }) {
   return (
     <Table empty="送迎中ドライバーはいません。">
       <thead><tr><th>状態</th><th>ドライバー名</th><th>到着予定</th><th>キャスト名</th><th>目的地</th><th>実際到着</th><th>送迎状態</th><th>最終更新</th>{!compact && <th>メモ</th>}{onCorrectStatus && <th>操作</th>}</tr></thead>
       <tbody>{rows.map((row) => (
         <tr key={row.driverId}>
           <td><StatusBadge status={row.status} /></td><td>{row.driverName}</td><td className="time-strong">{formatTime(row.estimatedArrival)}</td><td>{row.castName ?? "-"}</td><td>{row.destination ?? "-"}</td>
-          <td>{formatTime(row.actualArrival)}</td><td><RideStateBadge state={row.rideState} /></td><td>{formatTime(row.lastUpdatedAt)}</td>{!compact && <td className="memo-cell">{row.memo ?? ""}</td>}{onCorrectStatus && <td><button className="button secondary admin-status-correct-button" type="button" onClick={() => onCorrectStatus(row)}>状態修正</button></td>}
+          <td>{formatTime(row.actualArrival)}</td><td><RideStateBadge state={row.rideState} /></td><td>{formatTime(row.lastUpdatedAt)}</td>{!compact && <td className="memo-cell">{row.memo ?? ""}</td>}{onCorrectStatus && <td><AdminDriverActions row={row} onCorrectStatus={onCorrectStatus} onCorrectWorkTime={onCorrectWorkTime} onProxyClockOut={onProxyClockOut} /></td>}
         </tr>
       ))}</tbody>
     </Table>
+  );
+}
+
+function AdminDriverActions({ row, onCorrectStatus, onCorrectWorkTime, onProxyClockOut }: { row: any; onCorrectStatus?: (row: any) => void; onCorrectWorkTime?: (row: any) => void; onProxyClockOut?: (row: any) => void }) {
+  return (
+    <details className="admin-row-menu">
+      <summary>⋮</summary>
+      <div className="admin-row-menu-list">
+        {onCorrectStatus && <button type="button" onClick={() => onCorrectStatus(row)}>現在状態を修正</button>}
+        {onCorrectWorkTime && <button type="button" onClick={() => onCorrectWorkTime(row)}>出勤時刻を修正</button>}
+        {onProxyClockOut && <button type="button" onClick={() => onProxyClockOut(row)}>代理退勤</button>}
+      </div>
+    </details>
   );
 }
 
@@ -604,11 +670,11 @@ function HistoryView({ drivers, filters, setFilters, searchOpen, setSearchOpen, 
   );
 }
 
-function ClockOutTable({ logs }: { logs: any[] }) {
+function ClockOutTable({ logs, onCorrectWorkTime }: { logs: any[]; onCorrectWorkTime?: (row: any) => void }) {
   return (
     <Table empty="退勤済みログがありません。">
-      <thead><tr><th>ドライバー名</th><th>時給</th><th>出勤時間</th><th>退勤時間</th><th>丸め後</th><th>稼働時間</th><th>時給分</th><th>ガス精算</th><th>走行距離</th><th>ガス代</th><th>合計報酬</th><th>業務報告</th><th>最終更新</th></tr></thead>
-      <tbody>{logs.map((log) => <tr key={log.id}><td>{log.driverName}</td><td>{money(log.hourlyWage)}</td><td>-</td><td>{formatTime(log.clockOutTime)}</td><td>{formatTime(log.roundedClockOutTime)}</td><td>{log.workHours ?? "-"}h</td><td>{money(log.wageSubtotal)}</td><td>{formatGasSettlement(log.gasSettlementType)}</td><td>{log.distance ?? "-"}km</td><td>{money(log.gasSubtotal)}</td><td>{money(log.totalPayment)}</td><td className="memo-cell">{log.dailyReport ?? ""}</td><td>{formatTime(log.updatedAt)}</td></tr>)}</tbody>
+      <thead><tr><th>ドライバー名</th><th>時給</th><th>出勤時間</th><th>退勤時間</th><th>丸め後</th><th>稼働時間</th><th>時給分</th><th>ガス精算</th><th>走行距離</th><th>ガス代</th><th>合計報酬</th><th>業務報告</th><th>最終更新</th>{onCorrectWorkTime && <th>操作</th>}</tr></thead>
+      <tbody>{logs.map((log) => <tr key={log.id}><td>{log.driverName}</td><td>{money(log.hourlyWage)}</td><td>{formatTime(log.clockInTime)}</td><td>{formatTime(log.clockOutTime)}</td><td>{formatTime(log.roundedClockOutTime)}</td><td>{log.workHours ?? "-"}h</td><td>{money(log.wageSubtotal)}</td><td>{formatGasSettlement(log.gasSettlementType)}</td><td>{log.distance ?? "-"}km</td><td>{money(log.gasSubtotal)}</td><td>{money(log.totalPayment)}</td><td className="memo-cell">{log.dailyReport ?? ""}</td><td>{formatTime(log.updatedAt)}</td>{onCorrectWorkTime && <td><button className="button secondary admin-status-correct-button" type="button" onClick={() => onCorrectWorkTime(log)}>勤務時間を修正</button></td>}</tr>)}</tbody>
     </Table>
   );
 }
@@ -885,6 +951,45 @@ function StatusCorrectionModal({ target, onClose, onSave }: { target: any; onClo
   );
 }
 
+function WorkTimeCorrectionModal({ target, onClose, onSave }: { target: any; onClose: () => void; onSave: (event: FormEvent<HTMLFormElement>) => void }) {
+  const hasClockOut = Boolean(target.clockOutTime);
+  return (
+    <div className="modal-backdrop">
+      <form className="modal-panel stack" onSubmit={onSave}>
+        <div className="between"><h3>{hasClockOut ? "勤務時間を修正" : "出勤時刻を修正"}</h3><button type="button" className="button secondary" onClick={onClose}>閉じる</button></div>
+        <div className="detail-grid">
+          <p><strong>対象ドライバー</strong><br />{target.driverName}</p>
+          <p><strong>現在の出勤日時</strong><br />{formatMonthDayTime(target.clockInTime)}</p>
+          {hasClockOut && <p><strong>現在の退勤日時</strong><br />{formatMonthDayTime(target.clockOutTime)}</p>}
+          <label>修正後の出勤日時 <span className="muted">必須</span><input name="clockInAt" type="datetime-local" defaultValue={toLocalInput(target.clockInTime)} required /></label>
+          {hasClockOut && <label>修正後の退勤日時 <span className="muted">必須</span><input name="clockOutAt" type="datetime-local" defaultValue={toLocalInput(target.clockOutTime)} required /></label>}
+          <label>修正理由 <span className="muted">必須</span><textarea name="reason" defaultValue={hasClockOut ? "操作忘れ" : "出勤操作忘れ"} maxLength={500} required /></label>
+        </div>
+        <button className="button" type="submit">修正する</button>
+      </form>
+    </div>
+  );
+}
+
+function ProxyClockOutModal({ target, onClose, onSave }: { target: any; onClose: () => void; onSave: (event: FormEvent<HTMLFormElement>) => void }) {
+  return (
+    <div className="modal-backdrop">
+      <form className="modal-panel stack" onSubmit={onSave}>
+        <div className="between"><h3>代理退勤</h3><button type="button" className="button secondary" onClick={onClose}>閉じる</button></div>
+        <div className="detail-grid">
+          <p><strong>対象ドライバー</strong><br />{target.driverName}</p>
+          <p><strong>出勤日時</strong><br />{formatMonthDayTime(target.clockInTime)}</p>
+          <label>退勤日時 <span className="muted">必須</span><input name="clockOutAt" type="datetime-local" defaultValue={toLocalInput(new Date().toISOString())} required /></label>
+          <label>走行距離 km <span className="muted">必須</span><input name="gasDistance" type="number" min="0" step="0.1" required /></label>
+          <label>日報メモ <span className="muted">必須</span><textarea name="dailyReportMemo" defaultValue="管理者代理退勤" required /></label>
+          <label>代理退勤理由 <span className="muted">必須</span><textarea name="reason" defaultValue="退勤操作忘れ" maxLength={500} required /></label>
+        </div>
+        <button className="button danger" type="submit">代理退勤する</button>
+      </form>
+    </div>
+  );
+}
+
 function Table({ children, empty, tableClassName = "monitor-table", wrapperClassName = "table-scroll" }: { children: React.ReactNode; empty: string; tableClassName?: string; wrapperClassName?: string }) {
   const childArray = React.Children.toArray(children);
   const rowCount = React.Children.count((childArray[1] as any)?.props?.children);
@@ -1060,6 +1165,9 @@ function notificationTypeLabel(type: string) {
   if (type === "DISCORD_FAILED") return "Discord送信失敗";
   if (type === "SYSTEM_ERROR") return "システムエラー";
   if (type === "ADMIN_STATUS_CORRECTION") return "管理者代理修正";
+  if (type === "ADMIN_CLOCK_IN_CORRECTION") return "管理者出勤時刻修正";
+  if (type === "ADMIN_WORK_TIME_CORRECTION") return "管理者勤務時間修正";
+  if (type === "ADMIN_PROXY_CLOCK_OUT") return "管理者代理退勤";
   return type;
 }
 
@@ -1078,7 +1186,10 @@ function notificationTypeOptions(category: "BUSINESS" | "SYSTEM") {
     { value: "CLOCKOUT_OVER", label: "退勤予定超過" },
     { value: "DISCORD_FAILED", label: "Discord送信失敗" },
     { value: "SYSTEM_ERROR", label: "システムエラー" },
-    { value: "ADMIN_STATUS_CORRECTION", label: "管理者代理修正" }
+    { value: "ADMIN_STATUS_CORRECTION", label: "管理者代理修正" },
+    { value: "ADMIN_CLOCK_IN_CORRECTION", label: "管理者出勤時刻修正" },
+    { value: "ADMIN_WORK_TIME_CORRECTION", label: "管理者勤務時間修正" },
+    { value: "ADMIN_PROXY_CLOCK_OUT", label: "管理者代理退勤" }
   ];
 }
 
@@ -1158,10 +1269,7 @@ function truncate(value?: string | null, max = 50) {
 }
 
 function todayInputDate() {
-  const now = new Date();
-  const tokyo = new Date(now.getTime() + 9 * 60 * 60 * 1000);
-  if (tokyo.getUTCHours() < 7) tokyo.setUTCDate(tokyo.getUTCDate() - 1);
-  return tokyo.toISOString().slice(0, 10);
+  return formatBusinessDateValue(getBusinessDate());
 }
 
 function formatGasSettlement(value?: string | null) {

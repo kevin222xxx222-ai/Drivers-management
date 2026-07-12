@@ -880,6 +880,63 @@ td {
   overflow-x: auto;
 }
 
+.admin-row-menu {
+  position: relative;
+  display: inline-block;
+}
+
+.admin-row-menu summary {
+  display: inline-grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+  color: #334155;
+  cursor: pointer;
+  list-style: none;
+}
+
+.admin-row-menu summary::-webkit-details-marker {
+  display: none;
+}
+
+.admin-row-menu-list {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 20;
+  min-width: 170px;
+  overflow: hidden;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.16);
+}
+
+.admin-row-menu-list button {
+  display: block;
+  width: 100%;
+  border: 0;
+  border-bottom: 1px solid #e2e8f0;
+  background: #fff;
+  padding: 10px 12px;
+  color: #0f172a;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.admin-row-menu-list button:last-child {
+  border-bottom: 0;
+}
+
+.admin-row-menu-list button:hover {
+  background: #f8fafc;
+}
+
 .dashboard-waiting .table-scroll {
   /* max-height: 260px; */
   overflow: auto;

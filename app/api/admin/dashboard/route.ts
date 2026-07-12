@@ -41,6 +41,7 @@ export async function GET() {
         driverName: driver.driverName,
         status: latestLog!.status,
         scheduledClockOut: clockInLog?.scheduledClockOut ?? null,
+        clockInTime: clockInLog?.datetime ?? null,
         lastUpdatedAt: latestLog!.datetime,
         memo: latestLog!.memo
       }));
@@ -51,6 +52,7 @@ export async function GET() {
         driverName: driver.driverName,
         status: latestLog!.status,
         scheduledClockOut: clockInLog?.scheduledClockOut ?? null,
+        clockInTime: clockInLog?.datetime ?? null,
         type: latestLog!.type,
         castName: latestLog!.castName,
         destination: latestLog!.destination,

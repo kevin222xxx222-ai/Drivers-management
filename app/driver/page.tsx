@@ -33,7 +33,10 @@ const labels: Record<string, string> = {
   MAIL_CONFIRM_SEND: "送りメール確認",
   MAIL_CONFIRM_PICKUP: "迎えメール確認",
   UPDATE_SCHEDULED_CLOCK_OUT: "退勤予定変更",
-  ADMIN_STATUS_CORRECTION: "管理者代理修正"
+  ADMIN_STATUS_CORRECTION: "管理者代理修正",
+  ADMIN_CLOCK_IN_CORRECTION: "管理者出勤時刻修正",
+  ADMIN_WORK_TIME_CORRECTION: "管理者勤務時間修正",
+  ADMIN_PROXY_CLOCK_OUT: "管理者代理退勤"
 };
 
 const locationActions = new Set(["CLOCK_IN", "START_RIDE", "ARRIVE", "DROPOFF", "WAIT_FIELD", "WAIT_OFFICE", "CLOCK_OUT"]);

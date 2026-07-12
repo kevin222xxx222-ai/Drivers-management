@@ -142,6 +142,22 @@ export function buildNotificationDisplay(notification: NotificationLike): Busine
       notification.relatedLog ? mapUrlFor(notification.relatedLog) : ""
     );
   }
+  if (notification.type === "ADMIN_CLOCK_IN_CORRECTION" || notification.type === "ADMIN_WORK_TIME_CORRECTION" || notification.type === "ADMIN_PROXY_CLOCK_OUT") {
+    const titleMap: Record<string, string> = {
+      ADMIN_CLOCK_IN_CORRECTION: "管理者出勤時刻修正",
+      ADMIN_WORK_TIME_CORRECTION: "管理者勤務時間修正",
+      ADMIN_PROXY_CLOCK_OUT: "管理者代理退勤"
+    };
+    return view(
+      "🛠",
+      titleMap[notification.type] ?? "管理者操作",
+      formatClock(notification.createdAt ?? notification.relatedLog?.datetime),
+      notification.driver?.driverName ?? notification.relatedLog?.driverName ?? "ドライバー",
+      splitMessage(notification.message),
+      "system",
+      notification.relatedLog ? mapUrlFor(notification.relatedLog) : ""
+    );
+  }
 
   const log = notification.relatedLog;
   if (log) return buildBusinessNotificationView(log, notification.createdAt ?? log.datetime);

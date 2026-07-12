@@ -25,6 +25,7 @@ model Driver {
   logs              DriverLog[]
   notifications     Notification[]
   statusCorrections DriverStatusCorrection[]
+  workTimeCorrections DriverWorkTimeCorrection[]
 
   @@map("drivers")
 }
@@ -37,6 +38,7 @@ model Admin {
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
   statusCorrections DriverStatusCorrection[]
+  workTimeCorrections DriverWorkTimeCorrection[]
 
   @@map("admins")
 }
@@ -184,6 +186,38 @@ model DriverStatusCorrection {
   @@index([driverId, createdAt])
   @@index([adminId, createdAt])
   @@map("driver_status_corrections")
+}
+
+model DriverWorkTimeCorrection {
+  id                    String   @id @default(uuid()) @db.Uuid
+  driverId              String   @map("driver_id") @db.Uuid
+  adminId               String   @map("admin_id") @db.Uuid
+  correctionType        String   @map("correction_type") @db.VarChar(50)
+  businessDateBefore    DateTime? @map("business_date_before") @db.Date
+  businessDateAfter     DateTime? @map("business_date_after") @db.Date
+  clockInBefore         DateTime? @map("clock_in_before")
+  clockInAfter          DateTime? @map("clock_in_after")
+  clockOutBefore        DateTime? @map("clock_out_before")
+  clockOutAfter         DateTime? @map("clock_out_after")
+  workHoursBefore       Decimal? @map("work_hours_before") @db.Decimal(5, 2)
+  workHoursAfter        Decimal? @map("work_hours_after") @db.Decimal(5, 2)
+  wageSubtotalBefore    Int?     @map("wage_subtotal_before")
+  wageSubtotalAfter     Int?     @map("wage_subtotal_after")
+  gasSubtotalBefore     Int?     @map("gas_subtotal_before")
+  gasSubtotalAfter      Int?     @map("gas_subtotal_after")
+  totalPaymentBefore    Int?     @map("total_payment_before")
+  totalPaymentAfter     Int?     @map("total_payment_after")
+  reason                String
+  relatedClockInLogId   String?  @map("related_clock_in_log_id") @db.Uuid
+  relatedClockOutLogId  String?  @map("related_clock_out_log_id") @db.Uuid
+  relatedAdminLogId     String?  @map("related_admin_log_id") @db.Uuid
+  createdAt             DateTime @default(now()) @map("created_at")
+  driver                Driver   @relation(fields: [driverId], references: [id])
+  admin                 Admin    @relation(fields: [adminId], references: [id])
+
+  @@index([driverId, createdAt])
+  @@index([adminId, createdAt])
+  @@map("driver_work_time_corrections")
 }
 
 model ClockOutAlert {

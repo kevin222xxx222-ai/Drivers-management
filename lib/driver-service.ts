@@ -46,7 +46,7 @@ export async function getLatestClockInLog(driverId: string, businessDate = getBu
 
 export async function getDriverPageState(driver: Driver) {
   const businessDate = getBusinessDate();
-  const [latestStatusLog, latestRideLog, latestClockInLog, todayLogs, latestAdminCorrection] = await Promise.all([
+  const [latestStatusLog, latestRideLog, latestClockInLog, todayLogs, latestStatusCorrection, latestWorkTimeCorrection] = await Promise.all([
     getLatestStatusLog(driver.id, businessDate),
     getLatestRideLog(driver.id, businessDate),
     getLatestClockInLog(driver.id, businessDate),
@@ -64,9 +64,24 @@ export async function getDriverPageState(driver: Driver) {
         reason: true,
         createdAt: true
       }
+    }),
+    prisma.driverWorkTimeCorrection.findFirst({
+      where: { driverId: driver.id },
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        correctionType: true,
+        reason: true,
+        clockInBefore: true,
+        clockInAfter: true,
+        clockOutBefore: true,
+        clockOutAfter: true,
+        createdAt: true
+      }
     })
   ]);
   const currentStatus = latestStatusLog?.status ?? STATUSES.NOT_WORKING;
+  const latestAdminCorrection = normalizeLatestAdminCorrection(latestStatusCorrection, latestWorkTimeCorrection);
   return {
     driver,
     businessDate: formatBusinessDate(businessDate),
@@ -78,6 +93,21 @@ export async function getDriverPageState(driver: Driver) {
     scheduledClockOut: latestClockInLog?.scheduledClockOut ?? null,
     todayLogs,
     availableActions: availableActions(currentStatus, latestRideLog?.type)
+  };
+}
+
+function normalizeLatestAdminCorrection(
+  statusCorrection: { id: string; beforeStatus: string; afterStatus: string; reason: string; createdAt: Date } | null,
+  workTimeCorrection: { id: string; correctionType: string; reason: string; clockInBefore: Date | null; clockInAfter: Date | null; clockOutBefore: Date | null; clockOutAfter: Date | null; createdAt: Date } | null
+) {
+  if (!workTimeCorrection || (statusCorrection && statusCorrection.createdAt > workTimeCorrection.createdAt)) return statusCorrection;
+  const afterStatus = workTimeCorrection.correctionType === "ADMIN_PROXY_CLOCK_OUT" ? STATUSES.CLOCKED_OUT : "勤務時間修正";
+  return {
+    id: workTimeCorrection.id,
+    beforeStatus: workTimeCorrection.correctionType === "ADMIN_PROXY_CLOCK_OUT" ? "勤務中" : "修正前",
+    afterStatus,
+    reason: workTimeCorrection.reason,
+    createdAt: workTimeCorrection.createdAt
   };
 }
 

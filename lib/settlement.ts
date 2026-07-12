@@ -11,11 +11,25 @@ export function calculateClockOutSettlement(params: {
   clockOutTime?: Date;
   distance?: number | null;
 }) {
+  return calculateClockOutSettlementFromTimes({
+    driver: params.driver,
+    clockInTime: params.clockInLog.datetime,
+    clockOutTime: params.clockOutTime,
+    distance: params.distance
+  });
+}
+
+export function calculateClockOutSettlementFromTimes(params: {
+  driver: Driver;
+  clockInTime: Date;
+  clockOutTime?: Date;
+  distance?: number | null;
+}) {
   const clockOutTime = params.clockOutTime ?? new Date();
   const roundedClockOutTime = roundClockOut(clockOutTime);
   const diffHours = Math.max(
     0,
-    (roundedClockOutTime.getTime() - params.clockInLog.datetime.getTime()) / (1000 * 60 * 60)
+    (roundedClockOutTime.getTime() - params.clockInTime.getTime()) / (1000 * 60 * 60)
   );
   const workHours = Math.round(diffHours * 2) / 2;
   const hourlyWage = params.driver.hourlyWage;
@@ -28,7 +42,7 @@ export function calculateClockOutSettlement(params: {
       : 0;
 
   return {
-    clockInTime: params.clockInLog.datetime,
+    clockInTime: params.clockInTime,
     clockOutTime,
     roundedClockOutTime,
     workHours,

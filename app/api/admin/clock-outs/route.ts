@@ -12,7 +12,19 @@ export async function GET() {
       where: { businessDate, action: "CLOCK_OUT" },
       orderBy: latestDriverLogOrder
     });
-    return NextResponse.json({ businessDate: businessDate.toISOString().slice(0, 10), logs });
+    const clockInLogs = logs.length ? await prisma.driverLog.findMany({
+      where: {
+        action: "CLOCK_IN",
+        businessDate,
+        driverId: { in: Array.from(new Set(logs.map((log) => log.driverId))) }
+      },
+      orderBy: latestDriverLogOrder
+    }) : [];
+    const clockInMap = new Map(clockInLogs.map((log) => [log.driverId, log.datetime]));
+    return NextResponse.json({
+      businessDate: businessDate.toISOString().slice(0, 10),
+      logs: logs.map((log) => ({ ...log, clockInTime: clockInMap.get(log.driverId) ?? null }))
+    });
   } catch (error) {
     if (error instanceof Response) return error;
     return NextResponse.json({ error: "退勤一覧を取得できません。" }, { status: 500 });
