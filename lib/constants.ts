@@ -8,7 +8,8 @@ export const ACTIONS = [
   "CLOCK_OUT",
   "UPDATE_SCHEDULED_CLOCK_OUT",
   "MAIL_CONFIRM_SEND",
-  "MAIL_CONFIRM_PICKUP"
+  "MAIL_CONFIRM_PICKUP",
+  "ADMIN_STATUS_CORRECTION"
 ] as const;
 
 export type Action = (typeof ACTIONS)[number];

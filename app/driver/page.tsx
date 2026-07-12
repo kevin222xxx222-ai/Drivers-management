@@ -25,7 +25,8 @@ const labels: Record<string, string> = {
   CLOCK_OUT: "退勤",
   MAIL_CONFIRM_SEND: "送りメール確認",
   MAIL_CONFIRM_PICKUP: "迎えメール確認",
-  UPDATE_SCHEDULED_CLOCK_OUT: "退勤予定変更"
+  UPDATE_SCHEDULED_CLOCK_OUT: "退勤予定変更",
+  ADMIN_STATUS_CORRECTION: "管理者代理修正"
 };
 
 const locationActions = new Set(["CLOCK_IN", "START_RIDE", "ARRIVE", "DROPOFF", "WAIT_FIELD", "WAIT_OFFICE", "CLOCK_OUT"]);

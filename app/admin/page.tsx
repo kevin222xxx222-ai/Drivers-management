@@ -78,8 +78,12 @@ const actionLabels: Record<string, string> = {
   CLOCK_OUT: "退勤",
   UPDATE_SCHEDULED_CLOCK_OUT: "退勤予定変更",
   MAIL_CONFIRM_SEND: "送りメール確認",
-  MAIL_CONFIRM_PICKUP: "迎えメール確認"
+  MAIL_CONFIRM_PICKUP: "迎えメール確認",
+  ADMIN_STATUS_CORRECTION: "管理者代理修正"
 };
+
+const correctableStatuses = ["出勤中", "送り中", "迎え中", "戻り中", "その他", "現地到着", "女性降車済み", "現地待機", "事務所待機"];
+const rideCorrectionStatuses = ["送り中", "迎え中", "戻り中", "その他"];
 
 export default function AdminPage() {
   const router = useRouter();
@@ -97,6 +101,7 @@ export default function AdminPage() {
   const [selectedLogIds, setSelectedLogIds] = useState<string[]>([]);
   const [logDeleteMode, setLogDeleteMode] = useState(false);
   const [selectedDriver, setSelectedDriver] = useState<any | null>(null);
+  const [statusCorrectionTarget, setStatusCorrectionTarget] = useState<any | null>(null);
   const [addingDriver, setAddingDriver] = useState(false);
   const [historySearchOpen, setHistorySearchOpen] = useState(false);
   const [notifications, setNotifications] = useState<AdminNotification[]>([]);
@@ -316,6 +321,37 @@ export default function AdminPage() {
     if (response.ok) await loadNotifications();
   }
 
+  async function submitStatusCorrection(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!statusCorrectionTarget) return;
+    const form = new FormData(event.currentTarget);
+    const response = await fetch(`/api/admin/drivers/${statusCorrectionTarget.driverId}/correct-status`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        status: form.get("status"),
+        reason: form.get("reason"),
+        rideType: form.get("rideType"),
+        castName: form.get("castName"),
+        destination: form.get("destination"),
+        estimatedArrival: form.get("estimatedArrival"),
+        memo: form.get("memo"),
+        expectedStatus: statusCorrectionTarget.status,
+        expectedUpdatedAt: statusCorrectionTarget.lastUpdatedAt
+      })
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      setMessage(result.error ?? "状態修正に失敗しました。");
+      return;
+    }
+    setMessage(`${statusCorrectionTarget.driverName}の状態を「${result.driver.currentStatus}」へ修正しました。`);
+    setStatusCorrectionTarget(null);
+    await Promise.all([loadDashboard(), loadNotifications()]);
+    if (activeTab === "today") await loadToday();
+    if (activeTab === "history") await loadHistory(history.page);
+  }
+
   async function toggleNotificationCenter() {
     const nextOpen = !notificationOpen;
     setNotificationOpen(nextOpen);
@@ -376,9 +412,9 @@ export default function AdminPage() {
         {message && <p className={message.includes("失敗") ? "error" : "success"}>{message}</p>}
         {!dashboard ? <div className="panel">読み込み中...</div> : (
           <>
-            {activeTab === "dashboard" && <DashboardView dashboard={dashboard} />}
-            {activeTab === "waiting" && <WaitingTable rows={dashboard.waitingDrivers} />}
-            {activeTab === "rides" && <RideTable rows={dashboard.activeRideDrivers} />}
+            {activeTab === "dashboard" && <DashboardView dashboard={dashboard} onCorrectStatus={setStatusCorrectionTarget} />}
+            {activeTab === "waiting" && <WaitingTable rows={dashboard.waitingDrivers} onCorrectStatus={setStatusCorrectionTarget} />}
+            {activeTab === "rides" && <RideTable rows={dashboard.activeRideDrivers} onCorrectStatus={setStatusCorrectionTarget} />}
             {activeTab === "today" && (
               <LogTable
                 logs={todayLogs.length ? todayLogs : dashboard.todayLogs}
@@ -447,11 +483,12 @@ export default function AdminPage() {
       {selectedClockOutSummary && <ClockOutSummaryModal item={selectedClockOutSummary} onClose={() => setSelectedClockOutSummary(null)} />}
       {selectedDriver && <DriverModal driver={selectedDriver} onClose={() => setSelectedDriver(null)} onSave={saveDriver} onToggleActive={(isActive) => setDriverActive(selectedDriver, isActive)} onDelete={() => deleteDriver(selectedDriver)} />}
       {addingDriver && <AddDriverModal onClose={() => setAddingDriver(false)} onSave={addDriver} />}
+      {statusCorrectionTarget && <StatusCorrectionModal target={statusCorrectionTarget} onClose={() => setStatusCorrectionTarget(null)} onSave={submitStatusCorrection} />}
     </main>
   );
 }
 
-function DashboardView({ dashboard }: { dashboard: Dashboard }) {
+function DashboardView({ dashboard, onCorrectStatus }: { dashboard: Dashboard; onCorrectStatus: (row: any) => void }) {
   return (
     <div className="monitor-stack">
       <div className="summary-grid">
@@ -459,8 +496,8 @@ function DashboardView({ dashboard }: { dashboard: Dashboard }) {
         <Summary label="送迎中" value={dashboard.summary.activeRideCount} />
       </div>
       <div className="dashboard-list-grid">
-        <section className="monitor-panel dashboard-waiting"><h3>出勤・待機中一覧</h3><WaitingTable rows={dashboard.waitingDrivers} /></section>
-        <section className="monitor-panel dashboard-rides"><h3>送迎中一覧</h3><RideTable rows={dashboard.activeRideDrivers} /></section>
+        <section className="monitor-panel dashboard-waiting"><h3>出勤・待機中一覧</h3><WaitingTable rows={dashboard.waitingDrivers} onCorrectStatus={onCorrectStatus} /></section>
+        <section className="monitor-panel dashboard-rides"><h3>送迎中一覧</h3><RideTable rows={dashboard.activeRideDrivers} onCorrectStatus={onCorrectStatus} /></section>
       </div>
     </div>
   );
@@ -470,23 +507,23 @@ function Summary({ label, value }: { label: string; value: React.ReactNode }) {
   return <div className="summary-box"><span>{label}</span><strong>{value}</strong></div>;
 }
 
-function WaitingTable({ rows, compact = false }: { rows: any[]; compact?: boolean }) {
+function WaitingTable({ rows, compact = false, onCorrectStatus }: { rows: any[]; compact?: boolean; onCorrectStatus?: (row: any) => void }) {
   return (
     <Table empty="出勤・待機中のドライバーはいません。" tableClassName="monitor-table waiting-table" wrapperClassName="table-scroll waiting-table-wrapper">
-      <thead><tr><th>状態</th><th>ドライバー名</th><th>最終更新</th>{!compact && <th>メモ</th>}</tr></thead>
-      <tbody>{rows.map((row) => <tr key={row.driverId}><td><StatusBadge status={row.status} /></td><td>{row.driverName}</td><td>{formatTime(row.lastUpdatedAt)}</td>{!compact && <td className="memo-cell">{row.memo ?? ""}</td>}</tr>)}</tbody>
+      <thead><tr><th>状態</th><th>ドライバー名</th><th>最終更新</th>{!compact && <th>メモ</th>}{onCorrectStatus && <th>操作</th>}</tr></thead>
+      <tbody>{rows.map((row) => <tr key={row.driverId}><td><StatusBadge status={row.status} /></td><td>{row.driverName}</td><td>{formatTime(row.lastUpdatedAt)}</td>{!compact && <td className="memo-cell">{row.memo ?? ""}</td>}{onCorrectStatus && <td><button className="button secondary compact-button" type="button" onClick={() => onCorrectStatus(row)}>状態修正</button></td>}</tr>)}</tbody>
     </Table>
   );
 }
 
-function RideTable({ rows, compact = false }: { rows: any[]; compact?: boolean }) {
+function RideTable({ rows, compact = false, onCorrectStatus }: { rows: any[]; compact?: boolean; onCorrectStatus?: (row: any) => void }) {
   return (
     <Table empty="送迎中ドライバーはいません。">
-      <thead><tr><th>状態</th><th>ドライバー名</th><th>到着予定</th><th>キャスト名</th><th>目的地</th><th>実際到着</th><th>送迎状態</th><th>最終更新</th>{!compact && <th>メモ</th>}</tr></thead>
+      <thead><tr><th>状態</th><th>ドライバー名</th><th>到着予定</th><th>キャスト名</th><th>目的地</th><th>実際到着</th><th>送迎状態</th><th>最終更新</th>{!compact && <th>メモ</th>}{onCorrectStatus && <th>操作</th>}</tr></thead>
       <tbody>{rows.map((row) => (
         <tr key={row.driverId}>
           <td><StatusBadge status={row.status} /></td><td>{row.driverName}</td><td className="time-strong">{formatTime(row.estimatedArrival)}</td><td>{row.castName ?? "-"}</td><td>{row.destination ?? "-"}</td>
-          <td>{formatTime(row.actualArrival)}</td><td><RideStateBadge state={row.rideState} /></td><td>{formatTime(row.lastUpdatedAt)}</td>{!compact && <td className="memo-cell">{row.memo ?? ""}</td>}
+          <td>{formatTime(row.actualArrival)}</td><td><RideStateBadge state={row.rideState} /></td><td>{formatTime(row.lastUpdatedAt)}</td>{!compact && <td className="memo-cell">{row.memo ?? ""}</td>}{onCorrectStatus && <td><button className="button secondary compact-button" type="button" onClick={() => onCorrectStatus(row)}>状態修正</button></td>}
         </tr>
       ))}</tbody>
     </Table>
@@ -773,6 +810,81 @@ function AddDriverModal({ onClose, onSave }: { onClose: () => void; onSave: (eve
   );
 }
 
+function StatusCorrectionModal({ target, onClose, onSave }: { target: any; onClose: () => void; onSave: (event: FormEvent<HTMLFormElement>) => void }) {
+  const [status, setStatus] = useState("");
+  const [rideType, setRideType] = useState(defaultRideType(target));
+  const [destination, setDestination] = useState(target.destination ?? "");
+  const [castName, setCastName] = useState(target.castName ?? "");
+  const [estimatedArrival, setEstimatedArrival] = useState(toLocalInput(target.estimatedArrival));
+  const [memo, setMemo] = useState(target.memo ?? "");
+  const [reason, setReason] = useState("操作忘れ");
+  const showCastName = ["送り中", "迎え中", "戻り中", "女性降車済み"].includes(status);
+  const showDestination = ["送り中", "迎え中", "戻り中", "その他", "現地到着", "女性降車済み", "現地待機"].includes(status);
+  const showEstimatedArrival = ["送り中", "迎え中", "戻り中"].includes(status);
+  const showMemo = status === "その他";
+  const castNameRequired = ["送り中", "迎え中", "女性降車済み"].includes(status);
+  const destinationRequired = ["送り中", "迎え中", "現地到着", "現地待機"].includes(status);
+  const estimatedArrivalRequired = ["送り中", "迎え中"].includes(status);
+
+  useEffect(() => {
+    setStatus("");
+    setRideType(defaultRideType(target));
+    setDestination(target.destination ?? "");
+    setCastName(target.castName ?? "");
+    setEstimatedArrival(toLocalInput(target.estimatedArrival));
+    setMemo(target.memo ?? "");
+    setReason("操作忘れ");
+  }, [target]);
+
+  useEffect(() => {
+    if (status === "戻り中") {
+      setRideType("事務所戻り");
+      setDestination("事務所");
+    } else if (status === "送り中") {
+      setRideType("送り");
+    } else if (status === "迎え中") {
+      setRideType("迎え");
+    } else if (status === "その他") {
+      setRideType("その他");
+    }
+  }, [status]);
+
+  return (
+    <div className="modal-backdrop">
+      <form className="modal-panel stack" onSubmit={onSave}>
+        <div className="between">
+          <h3>現在状態を修正</h3>
+          <button type="button" className="button secondary" onClick={onClose}>閉じる</button>
+        </div>
+        <div className="detail-grid">
+          <p><strong>ドライバー名</strong><br />{target.driverName}</p>
+          <p><strong>現在状態</strong><br /><StatusBadge status={target.status} /></p>
+          <label>修正後ステータス<select name="status" value={status} onChange={(event) => setStatus(event.target.value)} required>
+            <option value="">選択してください</option>
+            {correctableStatuses.map((item) => <option key={item} value={item}>{item}</option>)}
+          </select></label>
+          <label>修正理由 <span className="muted">必須</span><textarea name="reason" value={reason} onChange={(event) => setReason(event.target.value)} maxLength={500} required /></label>
+        </div>
+        {status && (showCastName || showDestination || showEstimatedArrival || showMemo) && (
+          <section className="location-box stack">
+            <h3>補足情報</h3>
+            {rideCorrectionStatuses.includes(status) && <input type="hidden" name="rideType" value={rideType} />}
+            <div className="detail-grid">
+              {showCastName && <label>キャスト名 {castNameRequired && <span className="muted">必須</span>}<input name="castName" value={castName} onChange={(event) => setCastName(event.target.value)} required={castNameRequired} /></label>}
+              {showDestination && <label>目的地 {destinationRequired && <span className="muted">必須</span>}<input name="destination" value={status === "戻り中" ? "事務所" : destination} onChange={(event) => setDestination(event.target.value)} required={destinationRequired} readOnly={status === "戻り中"} /></label>}
+              {showEstimatedArrival && <label>到着予定 {estimatedArrivalRequired && <span className="muted">必須</span>}<input name="estimatedArrival" type="datetime-local" value={estimatedArrival} onChange={(event) => setEstimatedArrival(event.target.value)} required={estimatedArrivalRequired} /></label>}
+            </div>
+            {showMemo && <label>メモ <span className="muted">必須</span><textarea name="memo" value={memo} onChange={(event) => setMemo(event.target.value)} required /></label>}
+            <p className="muted">未入力の任意項目は現在の送迎情報を引き継ぎます。必須項目はAPI側でも検証します。</p>
+          </section>
+        )}
+        <p className="muted">保存時に管理者代理修正ログ、監査ログ、システム通知、Discord通知キューを作成します。過去ログは変更しません。</p>
+        <button className="button" type="submit">状態を修正</button>
+      </form>
+    </div>
+  );
+}
+
 function Table({ children, empty, tableClassName = "monitor-table", wrapperClassName = "table-scroll" }: { children: React.ReactNode; empty: string; tableClassName?: string; wrapperClassName?: string }) {
   const childArray = React.Children.toArray(children);
   const rowCount = React.Children.count((childArray[1] as any)?.props?.children);
@@ -947,6 +1059,7 @@ function notificationTypeLabel(type: string) {
   if (type === "CLOCKOUT_OVER") return "退勤予定超過";
   if (type === "DISCORD_FAILED") return "Discord送信失敗";
   if (type === "SYSTEM_ERROR") return "システムエラー";
+  if (type === "ADMIN_STATUS_CORRECTION") return "管理者代理修正";
   return type;
 }
 
@@ -964,8 +1077,17 @@ function notificationTypeOptions(category: "BUSINESS" | "SYSTEM") {
     { value: "CLOCKOUT_15_MIN_BEFORE", label: "退勤予定15分前" },
     { value: "CLOCKOUT_OVER", label: "退勤予定超過" },
     { value: "DISCORD_FAILED", label: "Discord送信失敗" },
-    { value: "SYSTEM_ERROR", label: "システムエラー" }
+    { value: "SYSTEM_ERROR", label: "システムエラー" },
+    { value: "ADMIN_STATUS_CORRECTION", label: "管理者代理修正" }
   ];
+}
+
+function defaultRideType(target: any) {
+  if (target.type) return target.type;
+  if (target.status === "送り中") return "送り";
+  if (target.status === "迎え中") return "迎え";
+  if (target.status === "戻り中") return "事務所戻り";
+  return "その他";
 }
 
 function playNotificationSound(severity: string) {

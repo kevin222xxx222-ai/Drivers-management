@@ -131,6 +131,18 @@ export function buildBusinessNotificationView(log: LogLike, createdAt: string | 
 }
 
 export function buildNotificationDisplay(notification: NotificationLike): BusinessNotificationView {
+  if (notification.type === "ADMIN_STATUS_CORRECTION") {
+    return view(
+      "🛠",
+      "管理者代理修正",
+      formatClock(notification.createdAt ?? notification.relatedLog?.datetime),
+      notification.driver?.driverName ?? notification.relatedLog?.driverName ?? "ドライバー",
+      splitMessage(notification.message),
+      "system",
+      notification.relatedLog ? mapUrlFor(notification.relatedLog) : ""
+    );
+  }
+
   const log = notification.relatedLog;
   if (log) return buildBusinessNotificationView(log, notification.createdAt ?? log.datetime);
 
