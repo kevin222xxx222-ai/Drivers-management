@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, ReactNode, useCallback, useEffect, useState } from "react";
+import { FormEvent, ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 type PageData = {
@@ -11,6 +11,13 @@ type PageData = {
   latestStatusLog?: any | null;
   latestRideLog?: any | null;
   latestClockInLog?: any | null;
+  latestAdminCorrection?: {
+    id: string;
+    beforeStatus: string;
+    afterStatus: string;
+    reason: string;
+    createdAt: string;
+  } | null;
   todayLogs: any[];
   availableActions: string[];
 };
@@ -54,16 +61,90 @@ export default function DriverPage() {
   const [scheduledClockOut, setScheduledClockOut] = useState("");
   const [rideType, setRideType] = useState("送り");
   const [historyLimit, setHistoryLimit] = useState(5);
+  const [refreshing, setRefreshing] = useState(false);
+  const [noticeMessage, setNoticeMessage] = useState("");
+  const refreshInFlightRef = useRef(false);
+  const initializedCorrectionRef = useRef(false);
 
-  const load = useCallback(async () => {
-    const response = await fetch("/api/driver/mypage", { cache: "no-store" });
-    if (response.status === 401) return router.push("/login");
-    setData(await response.json());
-  }, [router]);
+  const applyPageData = useCallback((nextData: PageData, options: { notifyAdminCorrection?: boolean; manual?: boolean } = {}) => {
+    setData(nextData);
+    const correction = nextData.latestAdminCorrection;
+    if (!correction?.id) {
+      initializedCorrectionRef.current = true;
+      return false;
+    }
+    const storageKey = `driver_last_seen_admin_correction_${nextData.driver.id}`;
+    const lastSeenId = window.localStorage.getItem(storageKey);
+    const isNewRecentCorrection = correction.id !== lastSeenId && isRecentCorrection(correction.createdAt);
+    if (!initializedCorrectionRef.current) {
+      initializedCorrectionRef.current = true;
+      if (isNewRecentCorrection) {
+        setNoticeMessage(adminCorrectionMessage(correction));
+      }
+      window.localStorage.setItem(storageKey, correction.id);
+      return isNewRecentCorrection;
+    }
+    if (options.notifyAdminCorrection && correction.id !== lastSeenId) {
+      setNoticeMessage(adminCorrectionMessage(correction));
+      window.localStorage.setItem(storageKey, correction.id);
+      return true;
+    }
+    return false;
+  }, []);
+
+  const load = useCallback(async (options: { manual?: boolean; notifyAdminCorrection?: boolean; quiet?: boolean } = {}) => {
+    if (refreshInFlightRef.current) return null;
+    refreshInFlightRef.current = true;
+    if (options.manual) setRefreshing(true);
+    if (options.manual) {
+      setErrorMessage("");
+      setNoticeMessage("");
+    }
+    try {
+      const response = await fetch("/api/driver/mypage", { cache: "no-store", credentials: "same-origin" });
+      if (response.status === 401) {
+        router.push("/login");
+        return null;
+      }
+      if (!response.ok) throw new Error("load failed");
+      const nextData = await response.json();
+      const notifiedAdminCorrection = applyPageData(nextData, { notifyAdminCorrection: options.notifyAdminCorrection, manual: options.manual });
+      if (options.manual && !notifiedAdminCorrection) setNoticeMessage("最新状態に更新しました。");
+      return nextData;
+    } catch {
+      if (!options.quiet) setErrorMessage("最新状態を取得できませんでした。通信状況を確認して、もう一度お試しください。");
+      return null;
+    } finally {
+      refreshInFlightRef.current = false;
+      if (options.manual) setRefreshing(false);
+    }
+  }, [applyPageData, router]);
+
+  const refreshLatestState = useCallback((options: { manual?: boolean; notifyAdminCorrection?: boolean; quiet?: boolean } = {}) => {
+    return load(options);
+  }, [load]);
 
   useEffect(() => {
-    load();
+    load({ notifyAdminCorrection: true, quiet: true });
   }, [load]);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      if (action || scheduleOpen) return;
+      void refreshLatestState({ notifyAdminCorrection: true, quiet: true });
+    }, 15_000);
+    const refreshOnActive = () => {
+      if (document.visibilityState === "visible") void refreshLatestState({ notifyAdminCorrection: true, quiet: true });
+    };
+    document.addEventListener("visibilitychange", refreshOnActive);
+    window.addEventListener("focus", refreshOnActive);
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", refreshOnActive);
+      window.removeEventListener("focus", refreshOnActive);
+    };
+  }, [action, refreshLatestState, scheduleOpen]);
 
   useEffect(() => {
     if (action !== "CLOCK_OUT") return setPreview(null);
@@ -116,14 +197,18 @@ export default function DriverPage() {
       const apiMs = performance.now() - apiStartedAt;
       if (!response.ok) {
         setErrorMessage(result.error ? `保存できませんでした。${result.error}` : "保存できませんでした。");
+        if (isStateMismatchError(result.error)) {
+          await refreshLatestState({ notifyAdminCorrection: true, quiet: true });
+          setErrorMessage("状態が更新されていたため、最新情報を読み込みました。現在の状態をご確認ください。");
+        }
         return;
       }
       setScheduleOpen(false);
       if (result.state) {
-        setData(result.state);
+        applyPageData(result.state);
         measureCardUpdate("UPDATE_SCHEDULED_CLOCK_OUT", startedAt, apiMs);
       }
-      void load();
+      void refreshLatestState({ notifyAdminCorrection: true, quiet: true });
     } catch {
       setErrorMessage("保存できませんでした。通信が完了しませんでした。");
     } finally {
@@ -170,16 +255,22 @@ export default function DriverPage() {
       const apiMs = performance.now() - apiStartedAt;
       if (!response.ok) {
         setErrorMessage(result.error ? `保存できませんでした。${result.error}` : "保存できませんでした。");
+        if (isStateMismatchError(result.error)) {
+          await refreshLatestState({ notifyAdminCorrection: true, quiet: true });
+          setAction("");
+          setScheduleOpen(false);
+          setErrorMessage("状態が更新されていたため、最新情報を読み込みました。現在の状態をご確認ください。");
+        }
         return;
       }
       setAction("");
       setScheduleOpen(false);
       setDistance("");
       if (result.state) {
-        setData(result.state);
+        applyPageData(result.state);
         measureCardUpdate(targetAction, startedAt, apiMs);
       }
-      void load();
+      void refreshLatestState({ notifyAdminCorrection: true, quiet: true });
     } catch {
       setErrorMessage("保存できませんでした。通信が完了しませんでした。");
     } finally {
@@ -229,9 +320,14 @@ export default function DriverPage() {
                 <button className="link-button" type="button" onClick={openScheduleEdit}>変更</button>
               </div>
             )}
+            <button className="button secondary driver-refresh-button" type="button" disabled={refreshing} onClick={() => refreshLatestState({ manual: true, notifyAdminCorrection: true })}>
+              {refreshing ? "更新中..." : "↻ 最新状態に更新"}
+            </button>
           </div>
           {isWorking ? <button className="button danger" disabled={loading} onClick={() => openAction("CLOCK_OUT")}>{processingAction === "CLOCK_OUT" ? "登録中..." : "退勤"}</button> : <button className="button secondary" onClick={logout}>ログアウト</button>}
         </div>
+
+        {noticeMessage && <p className={noticeMessage.startsWith("🛠") ? "admin-correction-notice" : "success"}>{noticeMessage}</p>}
 
         <StatusGuide data={data} />
 
@@ -400,6 +496,22 @@ function mainActionsFor(status: string, latestRideLog?: any | null) {
   if (status === "女性降車済み") return ["START_RIDE", "WAIT_FIELD", "WAIT_OFFICE"];
   if (status === "現地待機" || status === "事務所待機") return ["START_RIDE"];
   return [];
+}
+
+function isStateMismatchError(error: unknown) {
+  if (typeof error !== "string") return false;
+  return error.includes("現在の状態では") || error.includes("出勤中のみ") || error.includes("現地到着後のみ") || error.includes("直前の送迎開始ログ");
+}
+
+function adminCorrectionMessage(correction: NonNullable<PageData["latestAdminCorrection"]>) {
+  return `🛠 管理者により現在状態が修正されました\n${correction.beforeStatus} → ${correction.afterStatus}\n理由：${correction.reason}`;
+}
+
+function isRecentCorrection(value?: string | null) {
+  if (!value) return false;
+  const createdAt = new Date(value).getTime();
+  if (Number.isNaN(createdAt)) return false;
+  return Date.now() - createdAt <= 24 * 60 * 60 * 1000;
 }
 
 function statusIcon(status: string) {

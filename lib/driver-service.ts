@@ -46,13 +46,24 @@ export async function getLatestClockInLog(driverId: string, businessDate = getBu
 
 export async function getDriverPageState(driver: Driver) {
   const businessDate = getBusinessDate();
-  const [latestStatusLog, latestRideLog, latestClockInLog, todayLogs] = await Promise.all([
+  const [latestStatusLog, latestRideLog, latestClockInLog, todayLogs, latestAdminCorrection] = await Promise.all([
     getLatestStatusLog(driver.id, businessDate),
     getLatestRideLog(driver.id, businessDate),
     getLatestClockInLog(driver.id, businessDate),
     prisma.driverLog.findMany({
       where: { driverId: driver.id, businessDate },
       orderBy: latestDriverLogOrder
+    }),
+    prisma.driverStatusCorrection.findFirst({
+      where: { driverId: driver.id },
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        beforeStatus: true,
+        afterStatus: true,
+        reason: true,
+        createdAt: true
+      }
     })
   ]);
   const currentStatus = latestStatusLog?.status ?? STATUSES.NOT_WORKING;
@@ -63,6 +74,7 @@ export async function getDriverPageState(driver: Driver) {
     latestStatusLog,
     latestRideLog,
     latestClockInLog,
+    latestAdminCorrection,
     scheduledClockOut: latestClockInLog?.scheduledClockOut ?? null,
     todayLogs,
     availableActions: availableActions(currentStatus, latestRideLog?.type)

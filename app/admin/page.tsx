@@ -345,7 +345,7 @@ export default function AdminPage() {
       setMessage(result.error ?? "状態修正に失敗しました。");
       return;
     }
-    setMessage(`${statusCorrectionTarget.driverName}の状態を「${result.driver.currentStatus}」へ修正しました。`);
+    setMessage("");
     setStatusCorrectionTarget(null);
     await Promise.all([loadDashboard(), loadNotifications()]);
     if (activeTab === "today") await loadToday();
@@ -511,7 +511,7 @@ function WaitingTable({ rows, compact = false, onCorrectStatus }: { rows: any[];
   return (
     <Table empty="出勤・待機中のドライバーはいません。" tableClassName="monitor-table waiting-table" wrapperClassName="table-scroll waiting-table-wrapper">
       <thead><tr><th>状態</th><th>ドライバー名</th><th>最終更新</th>{!compact && <th>メモ</th>}{onCorrectStatus && <th>操作</th>}</tr></thead>
-      <tbody>{rows.map((row) => <tr key={row.driverId}><td><StatusBadge status={row.status} /></td><td>{row.driverName}</td><td>{formatTime(row.lastUpdatedAt)}</td>{!compact && <td className="memo-cell">{row.memo ?? ""}</td>}{onCorrectStatus && <td><button className="button secondary compact-button" type="button" onClick={() => onCorrectStatus(row)}>状態修正</button></td>}</tr>)}</tbody>
+      <tbody>{rows.map((row) => <tr key={row.driverId}><td><StatusBadge status={row.status} /></td><td>{row.driverName}</td><td>{formatTime(row.lastUpdatedAt)}</td>{!compact && <td className="memo-cell">{row.memo ?? ""}</td>}{onCorrectStatus && <td><button className="button secondary admin-status-correct-button" type="button" onClick={() => onCorrectStatus(row)}>状態修正</button></td>}</tr>)}</tbody>
     </Table>
   );
 }
@@ -523,7 +523,7 @@ function RideTable({ rows, compact = false, onCorrectStatus }: { rows: any[]; co
       <tbody>{rows.map((row) => (
         <tr key={row.driverId}>
           <td><StatusBadge status={row.status} /></td><td>{row.driverName}</td><td className="time-strong">{formatTime(row.estimatedArrival)}</td><td>{row.castName ?? "-"}</td><td>{row.destination ?? "-"}</td>
-          <td>{formatTime(row.actualArrival)}</td><td><RideStateBadge state={row.rideState} /></td><td>{formatTime(row.lastUpdatedAt)}</td>{!compact && <td className="memo-cell">{row.memo ?? ""}</td>}{onCorrectStatus && <td><button className="button secondary compact-button" type="button" onClick={() => onCorrectStatus(row)}>状態修正</button></td>}
+          <td>{formatTime(row.actualArrival)}</td><td><RideStateBadge state={row.rideState} /></td><td>{formatTime(row.lastUpdatedAt)}</td>{!compact && <td className="memo-cell">{row.memo ?? ""}</td>}{onCorrectStatus && <td><button className="button secondary admin-status-correct-button" type="button" onClick={() => onCorrectStatus(row)}>状態修正</button></td>}
         </tr>
       ))}</tbody>
     </Table>

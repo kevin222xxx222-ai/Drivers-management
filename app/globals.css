@@ -359,6 +359,24 @@ textarea {
   color: #b91c1c;
 }
 
+.driver-refresh-button {
+  margin-top: 10px;
+  min-height: 40px;
+  padding: 9px 12px;
+  font-size: 14px;
+  line-height: 1.2;
+}
+
+.admin-correction-notice {
+  white-space: pre-line;
+  border: 1px solid #bfdbfe;
+  border-radius: 10px;
+  background: #eff6ff;
+  color: #1e3a8a;
+  padding: 10px 12px;
+  font-weight: 800;
+}
+
 .link-button {
   border: 0;
   background: transparent;
@@ -893,6 +911,15 @@ td {
 .monitor-table input[type="checkbox"] {
   width: 18px;
   height: 18px;
+}
+
+.admin-status-correct-button {
+  min-height: 36px;
+  padding: 7px 14px;
+  border-radius: 8px;
+  font-size: 14px;
+  line-height: 1.2;
+  white-space: nowrap;
 }
 
 .click-row {
