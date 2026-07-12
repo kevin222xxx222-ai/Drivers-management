@@ -106,7 +106,7 @@ export async function sendDiscordPayload(type: WebhookType, payload: unknown) {
 
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 3_000);
+    const timeout = setTimeout(() => controller.abort(), 10_000);
     const response = await fetch(url, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -140,7 +140,7 @@ export async function sendDiscordNotice(input: {
   if (!url || !url.startsWith("https://discord.com/api/webhooks/")) return { sent: false, webhookType: "NOTICE" as const };
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 3_000);
+    const timeout = setTimeout(() => controller.abort(), 10_000);
     const response = await fetch(url, {
       method: "POST",
       headers: { "content-type": "application/json" },

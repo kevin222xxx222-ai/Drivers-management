@@ -162,70 +162,79 @@ async function scanClockOutAlert(clockInLog: {
     alertType: phase.phase
   });
 
-  try {
-    const result = await prisma.$transaction(async (tx) => {
-      const alert = await tx.clockOutAlert.create({
-        data: {
-          driverId: clockInLog.driverId,
-          businessDate,
-          scheduledClockOut: clockInLog.scheduledClockOut!,
-          phase: phase.phase
-        }
-      });
-
-      const notification = await tx.notification.create({
-        data: {
-          type: phase.type,
-          category: NOTIFICATION_CATEGORIES.SYSTEM,
-          severity: phase.severity,
-          title: phase.title,
-          message: `${clockInLog.driverName}\n退勤予定：${formatMonthDayTime(clockInLog.scheduledClockOut)}\n現在ステータス：${latest.status}`,
-          driverId: clockInLog.driverId
-        }
-      });
-
-      const payload = buildDiscordNoticePayload({
-        title: `${phase.icon} ${phase.title}｜${clockInLog.driverName}`,
-        color: phase.severity === "CRITICAL" ? 15158332 : phase.severity === "WARNING" ? 16753920 : 3447003,
-        fields: [
-          { name: "退勤予定", value: formatMonthDayTime(clockInLog.scheduledClockOut), inline: true },
-          { name: "現在ステータス", value: latest.status, inline: true }
-        ]
-      }) as Prisma.InputJsonValue;
-
-      const discordJob = await tx.discordJob.create({
-        data: {
-          notificationId: notification.id,
-          webhookType: "NOTICE",
-          payload
-        }
-      });
-
-      await tx.clockOutAlert.update({
-        where: { id: alert.id },
-        data: { notificationId: notification.id }
-      });
-
-      return { alert, notification, discordJob };
-    });
-    logClockOutAlert("clock_out_alert_created", {
-      alertId: result.alert.id,
-      notificationId: result.notification.id,
-      discordJobId: result.discordJob.id
-    });
-    return result.notification;
-  } catch (error) {
-    if (isUniqueViolation(error)) {
-      logClockOutAlert("clock_out_alert_skipped", {
-        reason: "unique_conflict",
+  const result = await prisma.$transaction(async (tx) => {
+    const created = await tx.clockOutAlert.createMany({
+      data: [{
         driverId: clockInLog.driverId,
-        scheduledClockOut: clockInLog.scheduledClockOut.toISOString(),
-        alertType: phase.phase
-      });
-      return null;
-    }
-    throw error;
+        businessDate,
+        scheduledClockOut: clockInLog.scheduledClockOut!,
+        phase: phase.phase
+      }],
+      skipDuplicates: true
+    });
+
+    if (created.count === 0) return { skipped: true as const, reason: "already-created" };
+
+    const alert = await tx.clockOutAlert.findFirst({
+      where: {
+        driverId: clockInLog.driverId,
+        businessDate,
+        scheduledClockOut: clockInLog.scheduledClockOut!,
+        phase: phase.phase
+      }
+    });
+    if (!alert) throw new Error("退勤予定アラートの作成結果を取得できません。");
+
+    const notification = await tx.notification.create({
+      data: {
+        type: phase.type,
+        category: NOTIFICATION_CATEGORIES.SYSTEM,
+        severity: phase.severity,
+        title: phase.title,
+        message: `${clockInLog.driverName}\n退勤予定：${formatMonthDayTime(clockInLog.scheduledClockOut)}\n現在ステータス：${latest.status}`,
+        driverId: clockInLog.driverId
+      }
+    });
+
+    const payload = buildDiscordNoticePayload({
+      title: `${phase.icon} ${phase.title}｜${clockInLog.driverName}`,
+      color: phase.severity === "CRITICAL" ? 15158332 : phase.severity === "WARNING" ? 16753920 : 3447003,
+      fields: [
+        { name: "退勤予定", value: formatMonthDayTime(clockInLog.scheduledClockOut), inline: true },
+        { name: "現在ステータス", value: latest.status, inline: true }
+      ]
+    }) as Prisma.InputJsonValue;
+
+    const discordJob = await tx.discordJob.create({
+      data: {
+        notificationId: notification.id,
+        webhookType: "NOTICE",
+        payload
+      }
+    });
+
+    await tx.clockOutAlert.update({
+      where: { id: alert.id },
+      data: { notificationId: notification.id }
+    });
+
+    return { skipped: false as const, alert, notification, discordJob };
+  });
+
+  if (result.skipped) {
+    logClockOutAlert("clock_out_alert_skipped", {
+      reason: result.reason,
+      phase: phase.phase
+    });
+    return null;
   }
+
+  logClockOutAlert("clock_out_alert_created", {
+    alertId: result.alert.id,
+    notificationId: result.notification.id,
+    discordJobId: result.discordJob.id
+  });
+  return result.notification;
 }
 
 function clockOutAlertPhase(scheduledClockOut: Date, now: Date) {
@@ -345,10 +354,6 @@ function formatClock(value: Date | null) {
 function formatMonthDayTime(value: Date | null) {
   if (!value) return "未設定";
   return value.toLocaleString("ja-JP", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Tokyo" });
-}
-
-function isUniqueViolation(error: unknown) {
-  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
 }
 
 function logClockOutAlert(event: string, data: Record<string, unknown>) {

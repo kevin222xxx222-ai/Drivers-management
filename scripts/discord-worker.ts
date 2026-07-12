@@ -8,20 +8,28 @@ const BATCH_SIZE = Number(process.env.DISCORD_WORKER_BATCH_SIZE ?? 10);
 const STALE_PROCESSING_MS = 5 * 60 * 1000;
 const retryScheduleMs = [30_000, 120_000, 300_000, 900_000];
 let stopping = false;
+let shuttingDown = false;
+let disconnected = false;
+let activeWorkPromise: Promise<unknown> | null = null;
+let sleepTimer: NodeJS.Timeout | null = null;
+let wakeSleep: (() => void) | null = null;
 
-process.on("SIGINT", () => { stopping = true; });
-process.on("SIGTERM", () => { stopping = true; });
+process.once("SIGINT", () => { void shutdown("SIGINT"); });
+process.once("SIGTERM", () => { void shutdown("SIGTERM"); });
 
 async function main() {
   console.log("discord-worker started");
   while (!stopping) {
-    const processed = await tick().catch((error) => {
+    activeWorkPromise = tick().catch((error) => {
       console.error("discord-worker tick failed", safeError(error));
       return 0;
     });
-    await sleep(processed > 0 ? POLL_MS : Math.min(POLL_MS * 3, 5000));
+    const processed = await activeWorkPromise;
+    activeWorkPromise = null;
+    if (stopping) break;
+    await sleepWithShutdownSupport(Number(processed) > 0 ? POLL_MS : Math.min(POLL_MS * 3, 5000));
   }
-  await prisma.$disconnect();
+  await disconnectPrisma();
   console.log("discord-worker stopped");
 }
 
@@ -29,6 +37,7 @@ async function tick() {
   await releaseStaleProcessingJobs();
   const jobs = await claimJobs(BATCH_SIZE);
   for (const job of jobs) {
+    if (stopping) break;
     await processJob(job);
   }
   return jobs.length;
@@ -143,8 +152,49 @@ async function failPermanently(job: { id: string; eventLogId: string | null; att
   });
 }
 
-function sleep(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function sleepWithShutdownSupport(ms: number) {
+  if (stopping) return Promise.resolve();
+  return new Promise<void>((resolve) => {
+    wakeSleep = resolve;
+    sleepTimer = setTimeout(() => {
+      sleepTimer = null;
+      wakeSleep = null;
+      resolve();
+    }, ms);
+  });
+}
+
+async function shutdown(signal: string) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  stopping = true;
+  console.log(JSON.stringify({ event: "discord_worker_shutdown_started", signal }));
+  if (sleepTimer) {
+    clearTimeout(sleepTimer);
+    sleepTimer = null;
+  }
+  if (wakeSleep) {
+    wakeSleep();
+    wakeSleep = null;
+  }
+  try {
+    if (activeWorkPromise) {
+      await Promise.race([
+        activeWorkPromise,
+        new Promise((resolve) => setTimeout(resolve, 8_000))
+      ]);
+    }
+  } finally {
+    await disconnectPrisma();
+    console.log(JSON.stringify({ event: "discord_worker_shutdown_completed" }));
+    process.exit(0);
+  }
+}
+
+async function disconnectPrisma() {
+  if (disconnected) return;
+  disconnected = true;
+  await prisma.$disconnect();
 }
 
 function safeError(error: unknown) {
@@ -159,6 +209,6 @@ function performanceLog(event: string, data: Record<string, unknown>) {
 
 main().catch(async (error) => {
   console.error("discord-worker fatal", safeError(error));
-  await prisma.$disconnect();
+  await disconnectPrisma();
   process.exit(1);
 });
