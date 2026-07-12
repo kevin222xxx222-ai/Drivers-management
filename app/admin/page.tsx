@@ -899,11 +899,7 @@ function isTabKey(value: string | null): value is TabKey {
 }
 
 function shouldToastNotification(notification: AdminNotification) {
-  return notification.category === "BUSINESS" || isClockOutAlertType(notification.type);
-}
-
-function isClockOutAlertType(type: string) {
-  return ["CLOCKOUT_60_MIN_BEFORE", "CLOCKOUT_30_MIN_BEFORE", "CLOCKOUT_15_MIN_BEFORE", "CLOCKOUT_OVER"].includes(type);
+  return notification.category === "BUSINESS";
 }
 
 function formatClockOnly(value?: string | null) {

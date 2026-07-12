@@ -146,6 +146,7 @@ model DiscordJob {
   createdAt      DateTime  @default(now()) @map("created_at")
   updatedAt      DateTime  @updatedAt @map("updated_at")
 
+  @@unique([notificationId, webhookType])
   @@index([status, nextAttemptAt])
   @@map("discord_jobs")
 }
@@ -170,6 +171,7 @@ model ClockOutAlert {
   businessDate       DateTime @map("business_date") @db.Date
   scheduledClockOut  DateTime @map("scheduled_clock_out")
   phase              String   @db.VarChar(20)
+  notificationId     String?  @map("notification_id") @db.Uuid
   sentAt             DateTime @default(now()) @map("sent_at")
 
   @@unique([driverId, businessDate, scheduledClockOut, phase])

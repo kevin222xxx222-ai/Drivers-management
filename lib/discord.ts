@@ -144,14 +144,7 @@ export async function sendDiscordNotice(input: {
     const response = await fetch(url, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        embeds: [{
-          title: input.title,
-          color: input.color ?? 15105570,
-          fields: input.fields,
-          timestamp: new Date().toISOString()
-        }]
-      }),
+      body: JSON.stringify(buildDiscordNoticePayload(input)),
       signal: controller.signal
     });
     clearTimeout(timeout);
@@ -159,6 +152,21 @@ export async function sendDiscordNotice(input: {
   } catch {
     return { sent: false, webhookType: "NOTICE" as const };
   }
+}
+
+export function buildDiscordNoticePayload(input: {
+  title: string;
+  fields: { name: string; value: string; inline?: boolean }[];
+  color?: number;
+}) {
+  return {
+    embeds: [{
+      title: input.title,
+      color: input.color ?? 15105570,
+      fields: input.fields,
+      timestamp: new Date().toISOString()
+    }]
+  };
 }
 
 function discordDescription(lines: string[], mapUrl?: string) {
