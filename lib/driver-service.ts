@@ -23,8 +23,16 @@ export async function getCurrentStatus(driverId: string, businessDate = getBusin
 }
 
 export async function getLatestRideLog(driverId: string, businessDate = getBusinessDate()) {
+  const latestStatusLog = await getLatestStatusLog(driverId, businessDate);
+  if (!latestStatusLog || !rideContextStatuses.includes(latestStatusLog.status)) return null;
+  if (rideContextActions.includes(latestStatusLog.action)) return latestStatusLog;
   return prisma.driverLog.findFirst({
-    where: { driverId, businessDate, action: "START_RIDE" },
+    where: {
+      driverId,
+      businessDate,
+      datetime: { lte: latestStatusLog.datetime },
+      action: { in: rideContextActions }
+    },
     orderBy: latestDriverLogOrder
   });
 }
@@ -76,6 +84,18 @@ export function availableActions(currentStatus: string, latestRideType?: string 
   if (currentStatus === STATUSES.WAIT_OFFICE) return ["START_RIDE", ...common];
   return common;
 }
+
+const rideContextStatuses = [
+  STATUSES.SENDING,
+  STATUSES.PICKING_UP,
+  STATUSES.RETURNING,
+  STATUSES.OTHER,
+  STATUSES.ARRIVED,
+  STATUSES.DROPPED_OFF,
+  STATUSES.WAIT_FIELD
+] as string[];
+
+const rideContextActions = ["START_RIDE", "ARRIVE", "DROPOFF", "WAIT_FIELD", "ADMIN_STATUS_CORRECTION"];
 
 export async function createDriverLog(params: {
   driver: Driver;
