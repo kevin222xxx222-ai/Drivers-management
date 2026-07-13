@@ -10,6 +10,7 @@ export default function ServiceWorkerRegister() {
     installPwaInstallDiagnostics();
 
     navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if ((window as Window & { __manualAppUpdateInProgress?: boolean }).__manualAppUpdateInProgress) return;
       if (refreshing) return;
       refreshing = true;
       window.location.reload();
@@ -37,6 +38,7 @@ export default function ServiceWorkerRegister() {
 }
 
 function promptForReload(worker: ServiceWorker) {
+  if (window.location.pathname === "/driver") return;
   const confirmed = window.confirm("新しいバージョンがあります。画面を再読み込みして更新しますか？");
   if (confirmed) worker.postMessage({ type: "SKIP_WAITING" });
 }

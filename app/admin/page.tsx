@@ -3,6 +3,7 @@
 import React, { FormEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
+import AppVersionUpdateNotice from "@/components/AppVersionUpdateNotice";
 import { buildNotificationDisplay as buildNotificationDisplayView } from "@/lib/notification-view";
 import { formatBusinessDate as formatBusinessDateValue, getBusinessDate } from "@/lib/time";
 
@@ -410,6 +411,15 @@ export default function AdminPage() {
   }
 
   const title = tabs.find((tab) => tab.key === activeTab)?.label ?? "ダッシュボード";
+  const hasInputOpen = Boolean(
+    selectedLog ||
+    selectedClockOutSummary ||
+    selectedDriver ||
+    statusCorrectionTarget ||
+    workTimeTarget ||
+    proxyClockOutTarget ||
+    addingDriver
+  );
 
   return (
     <main className="admin-monitor">
@@ -458,6 +468,7 @@ export default function AdminPage() {
             />
           </div>
         </header>
+        <AppVersionUpdateNotice hasInputOpen={hasInputOpen} />
         {message && <p className={message.includes("失敗") ? "error" : "success"}>{message}</p>}
         {!dashboard ? <div className="panel">読み込み中...</div> : (
           <>

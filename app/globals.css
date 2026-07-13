@@ -534,6 +534,49 @@ textarea {
   gap: 10px;
 }
 
+.ride-type-field {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  border: 0;
+  padding: 0;
+}
+
+.ride-type-field legend {
+  margin-bottom: 2px;
+  color: #334155;
+  font-weight: 900;
+}
+
+.ride-type-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.ride-type-option {
+  min-height: 58px;
+  border: 2px solid #cbd5e1;
+  border-radius: 14px;
+  background: #fff;
+  color: #0f172a;
+  font-size: 16px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.ride-type-option.is-selected {
+  border-color: #0f766e;
+  background: #0f766e;
+  color: #fff;
+}
+
+.required-inline {
+  color: #b91c1c;
+  font-size: 12px;
+  font-weight: 900;
+}
+
 .cancel-confirm-detail {
   display: grid;
   gap: 10px;
@@ -555,6 +598,67 @@ textarea {
 .cancel-confirm-detail strong {
   color: #0f172a;
   text-align: right;
+}
+
+.version-update-notice {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  border: 1px solid #bfdbfe;
+  border-left: 6px solid #2563eb;
+  border-radius: 14px;
+  background: #eff6ff;
+  padding: 14px 16px;
+  box-shadow: 0 8px 24px rgba(37, 99, 235, 0.08);
+}
+
+.version-update-title {
+  margin: 0 0 4px;
+  color: #1e3a8a;
+  font-size: 16px;
+  font-weight: 900;
+}
+
+.version-update-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, max-content));
+  gap: 8px 18px;
+  margin: 10px 0 0;
+}
+
+.version-update-grid div {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  min-width: 0;
+}
+
+.version-update-grid dt {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.version-update-grid dd {
+  margin: 0;
+  color: #0f172a;
+  font-size: 12px;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.version-update-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.version-update-error {
+  margin: 10px 0 0;
+  white-space: pre-line;
+  color: #92400e;
+  font-size: 13px;
+  font-weight: 800;
 }
 
 .settlement-preview {
@@ -1675,6 +1779,31 @@ td {
 }
 
 @media (max-width: 760px) {
+  .version-update-notice {
+    grid-template-columns: 1fr;
+  }
+
+  .version-update-actions {
+    justify-content: stretch;
+  }
+
+  .version-update-actions .button {
+    width: 100%;
+  }
+
+  .version-update-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .ride-type-grid {
+    gap: 8px;
+  }
+
+  .ride-type-option {
+    min-height: 54px;
+    font-size: 15px;
+  }
+
   .notification-toolbar {
     grid-template-columns: 1fr;
   }

@@ -2,6 +2,7 @@
 
 import { FormEvent, ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import AppVersionUpdateNotice from "@/components/AppVersionUpdateNotice";
 
 type PageData = {
   driver: any;
@@ -69,7 +70,7 @@ export default function DriverPage() {
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [rideCancelOpen, setRideCancelOpen] = useState(false);
   const [scheduledClockOut, setScheduledClockOut] = useState("");
-  const [rideType, setRideType] = useState("送り");
+  const [rideType, setRideType] = useState("");
   const [historyLimit, setHistoryLimit] = useState(5);
   const [refreshing, setRefreshing] = useState(false);
   const [noticeMessage, setNoticeMessage] = useState("");
@@ -183,7 +184,7 @@ export default function DriverPage() {
   function openAction(nextAction: string) {
     clearMessages();
     setDistance("");
-    setRideType("送り");
+    setRideType("");
     setAction(nextAction);
   }
 
@@ -250,8 +251,12 @@ export default function DriverPage() {
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!action) return;
-    if (!window.confirm(`${labels[action]}を登録します。よろしいですか？`)) return;
     const form = new FormData(event.currentTarget);
+    if (action === "START_RIDE" && !String(form.get("type") ?? "")) {
+      setErrorMessage("送迎種別を選択してください。");
+      return;
+    }
+    if (!window.confirm(`${labels[action]}を登録します。よろしいですか？`)) return;
     await saveAction(action, Object.fromEntries(form.entries()));
   }
 
@@ -363,6 +368,8 @@ export default function DriverPage() {
 
         {noticeMessage && <p className={noticeMessage.startsWith("🛠") ? "admin-correction-notice" : "success"}>{noticeMessage}</p>}
 
+        <AppVersionUpdateNotice hasInputOpen={Boolean(action || scheduleOpen || rideCancelOpen)} />
+
         <StatusGuide data={data} canCancelRide={canCancelRide} onRideCancel={openRideCancel} loading={loading} processingAction={processingAction} />
 
         {!!primaryActions.length && (
@@ -451,11 +458,28 @@ function ActionFields({ action, gasSettlementType, distance, setDistance, rideTy
   if (action === "START_RIDE") {
     return (
       <>
-        <label>種別<select name="type" required value={rideType} onChange={(event) => setRideType(event.target.value)}><option value="送り">送り</option><option value="迎え">迎え</option><option value="事務所戻り">事務所戻り</option><option value="その他">その他</option></select></label>
+        <fieldset className="ride-type-field">
+          <legend>送迎種別</legend>
+          <div className="ride-type-grid" role="radiogroup" aria-label="送迎種別">
+            {["送り", "迎え", "事務所戻り", "その他"].map((type) => (
+              <button
+                key={type}
+                type="button"
+                role="radio"
+                aria-checked={rideType === type}
+                className={`ride-type-option ${rideType === type ? "is-selected" : ""}`}
+                onClick={() => setRideType(type)}
+              >
+                {rideType === type ? "✓ " : ""}{type}
+              </button>
+            ))}
+          </div>
+          <input name="type" type="hidden" value={rideType} />
+        </fieldset>
         <label>キャスト名<input name="castName" required={rideType === "送り" || rideType === "迎え"} /></label>
-        {rideType === "事務所戻り" ? <input name="destination" type="hidden" value="事務所" /> : <label>目的地<input name="destination" required /></label>}
+        {rideType === "事務所戻り" ? <><input name="destination" type="hidden" value="事務所" /><p className="muted">目的地：事務所</p></> : <label>目的地<input name="destination" required={rideType === "送り" || rideType === "迎え"} /></label>}
         <label>移動時間分数<input name="travelMinutes" type="number" min="1" required /></label>
-        <label>メモ<textarea name="memo" /></label>
+        <label>メモ {rideType === "その他" && <span className="required-inline">必須</span>}<textarea name="memo" required={rideType === "その他"} /></label>
       </>
     );
   }

@@ -182,13 +182,15 @@ export async function createDriverLog(params: {
       throw new Error("現在の状態では送迎開始できません。");
     }
     const type = String(params.input.type ?? "");
-    if (!RIDE_TYPES.includes(type as never)) throw new Error("Typeを選択してください。");
+    if (!RIDE_TYPES.includes(type as never)) throw new Error("送迎種別を選択してください。");
     const destination = type === "事務所戻り" ? "事務所" : text(params.input.destination);
-    if (!destination) throw new Error("目的地は必須です。");
+    if (["送り", "迎え"].includes(type) && !destination) throw new Error("目的地は必須です。");
     const travelMinutes = Number(params.input.travelMinutes);
     if (!Number.isInteger(travelMinutes) || travelMinutes < 1) throw new Error("移動時間は1以上の整数で入力してください。");
     const castName = text(params.input.castName);
     if (["送り", "迎え"].includes(type) && !castName) throw new Error("キャスト名は必須です。");
+    const memo = text(params.input.memo);
+    if (type === "その他" && !memo) throw new Error("その他の内容をメモへ入力してください。");
     data = {
       ...base,
       status: statusForRideType(type),
@@ -197,7 +199,7 @@ export async function createDriverLog(params: {
       destination,
       travelMinutes,
       estimatedArrival: new Date(now.getTime() + travelMinutes * 60_000),
-      memo: text(params.input.memo),
+      memo,
       affectsStatus: true
     };
   } else if (action === "RIDE_CANCELLED") {
