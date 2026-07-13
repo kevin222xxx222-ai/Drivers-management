@@ -118,7 +118,6 @@ export default function AdminPage() {
   const [notificationCategory, setNotificationCategory] = useState<"BUSINESS" | "SYSTEM">("BUSINESS");
   const [systemUnreadCount, setSystemUnreadCount] = useState(0);
   const [businessUnreadCount, setBusinessUnreadCount] = useState(0);
-  const [soundEnabled, setSoundEnabled] = useState(true);
   const [autoReadBusinessOnOpen, setAutoReadBusinessOnOpen] = useState(true);
   const [toasts, setToasts] = useState<AdminNotification[]>([]);
   const [message, setMessage] = useState("");
@@ -185,12 +184,11 @@ export default function AdminPage() {
       const fresh = items.filter((item) => shouldToastNotification(item) && !item.isRead && !knownNotificationIds.current!.has(item.id));
       if (fresh.length) {
         setToasts((current) => [...fresh, ...current].slice(0, 6));
-        if (soundEnabled) playNotificationSound(fresh[0].severity);
         window.setTimeout(() => setToasts((current) => current.filter((item) => !fresh.some((next) => next.id === item.id))), 7000);
       }
     }
     knownNotificationIds.current = unreadToastIds;
-  }, [notificationFilters, soundEnabled]);
+  }, [notificationFilters]);
 
   const resetHistory = useCallback(async () => {
     setHistoryFilters({ businessDateFrom: "", businessDateTo: "", driverId: "", status: "", type: "", action: "", castName: "", destination: "" });
@@ -452,8 +450,6 @@ export default function AdminPage() {
               onToggleOpen={toggleNotificationCenter}
               activeCategory={notificationCategory}
               setActiveCategory={setNotificationCategory}
-              soundEnabled={soundEnabled}
-              setSoundEnabled={setSoundEnabled}
               autoReadBusinessOnOpen={autoReadBusinessOnOpen}
               setAutoReadBusinessOnOpen={setAutoReadBusinessOnOpen}
               onReadAll={readAllNotifications}
@@ -526,7 +522,7 @@ export default function AdminPage() {
                 onToggleRead={toggleNotificationRead}
               />
             )}
-            {activeTab === "system" && <SystemSettings soundEnabled={soundEnabled} setSoundEnabled={setSoundEnabled} />}
+            {activeTab === "system" && <SystemSettings />}
           </>
         )}
       </section>
@@ -896,12 +892,11 @@ function NotificationHistory({ notifications, drivers, activeCategory, setActive
   );
 }
 
-function SystemSettings({ soundEnabled, setSoundEnabled }: { soundEnabled: boolean; setSoundEnabled: (value: boolean) => void }) {
+function SystemSettings() {
   return (
     <section className="monitor-panel stack">
       <h3>システム設定</h3>
-      <label className="check-row"><input type="checkbox" checked={soundEnabled} onChange={(event) => setSoundEnabled(event.target.checked)} />通知音を有効にする</label>
-      <p className="muted">PWA、通知センター、Discord補助通知に対応しています。</p>
+      <p className="muted">PWA、通知センター、Discord補助通知に対応しています。アプリ内通知音は無効です。</p>
     </section>
   );
 }
@@ -1097,7 +1092,7 @@ function Table({ children, empty, tableClassName = "monitor-table", wrapperClass
   return <div className={wrapperClassName}><table className={tableClassName}>{children}</table>{isEmpty && <p className="empty-state">{empty}</p>}</div>;
 }
 
-function NotificationBell({ notifications, unreadCount, businessUnreadCount, systemUnreadCount, open, onToggleOpen, activeCategory, setActiveCategory, soundEnabled, setSoundEnabled, autoReadBusinessOnOpen, setAutoReadBusinessOnOpen, onReadAll, onOpenHistory, onToggleRead }: any) {
+function NotificationBell({ notifications, unreadCount, businessUnreadCount, systemUnreadCount, open, onToggleOpen, activeCategory, setActiveCategory, autoReadBusinessOnOpen, setAutoReadBusinessOnOpen, onReadAll, onOpenHistory, onToggleRead }: any) {
   const visibleNotifications = notifications.filter((item: AdminNotification) => item.category === activeCategory).slice(0, 8);
   return (
     <div className="notification-shell">
@@ -1106,7 +1101,7 @@ function NotificationBell({ notifications, unreadCount, businessUnreadCount, sys
       </button>
       {open && (
         <div className="notification-popover">
-          <div className="between"><h3>通知センター</h3><label className="check-row"><input type="checkbox" checked={soundEnabled} onChange={(event) => setSoundEnabled(event.target.checked)} />音</label></div>
+          <div className="between"><h3>通知センター</h3></div>
           <NotificationCategoryTabs activeCategory={activeCategory} setActiveCategory={setActiveCategory} businessUnreadCount={businessUnreadCount} systemUnreadCount={systemUnreadCount} />
           <div className="notification-actions">
             <button className="button secondary" type="button" onClick={() => onReadAll("BUSINESS")}>✓ 業務通知を全て既読</button>
@@ -1300,23 +1295,6 @@ function defaultRideType(target: any) {
   if (target.status === "迎え中") return "迎え";
   if (target.status === "戻り中") return "事務所戻り";
   return "その他";
-}
-
-function playNotificationSound(severity: string) {
-  try {
-    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-    const context = new AudioContextClass();
-    const oscillator = context.createOscillator();
-    const gain = context.createGain();
-    oscillator.frequency.value = severity === "CRITICAL" ? 880 : severity === "WARNING" ? 660 : 440;
-    gain.gain.value = 0.08;
-    oscillator.connect(gain);
-    gain.connect(context.destination);
-    oscillator.start();
-    oscillator.stop(context.currentTime + (severity === "CRITICAL" ? 0.45 : 0.22));
-  } catch {
-    // Browser autoplay policies can block sound until the first user gesture.
-  }
 }
 
 function formatTime(value?: string | null) {

@@ -44,6 +44,9 @@ const locationActions = new Set(["CLOCK_IN", "START_RIDE", "ARRIVE", "DROPOFF", 
 const formActions = new Set(["CLOCK_IN", "START_RIDE", "CLOCK_OUT"]);
 const rideCancelStatuses = ["送り中", "迎え中", "戻り中", "その他"];
 const rideCancelReasons = ["行き先変更", "迎え場所変更", "別送迎へ変更", "管理者指示", "その他"];
+const successNoticeMessages: Record<string, string> = {
+  RIDE_CANCELLED: "送迎を取り消しました。"
+};
 
 const confirmMessages: Record<string, string> = {
   ARRIVE: "現地到着として登録しますか？",
@@ -115,8 +118,7 @@ export default function DriverPage() {
       }
       if (!response.ok) throw new Error("load failed");
       const nextData = await response.json();
-      const notifiedAdminCorrection = applyPageData(nextData, { notifyAdminCorrection: options.notifyAdminCorrection, manual: options.manual });
-      if (options.manual && !notifiedAdminCorrection) setNoticeMessage("最新状態に更新しました。");
+      applyPageData(nextData, { notifyAdminCorrection: options.notifyAdminCorrection, manual: options.manual });
       return nextData;
     } catch {
       if (!options.quiet) setErrorMessage("最新状態を取得できませんでした。通信状況を確認して、もう一度お試しください。");
@@ -169,6 +171,7 @@ export default function DriverPage() {
 
   function clearMessages() {
     setErrorMessage("");
+    setNoticeMessage("");
   }
 
   function openAction(nextAction: string) {
@@ -220,6 +223,7 @@ export default function DriverPage() {
         applyPageData(result.state);
         measureCardUpdate("UPDATE_SCHEDULED_CLOCK_OUT", startedAt, apiMs);
       }
+      setNoticeMessage("退勤予定を変更しました。");
       void refreshLatestState({ notifyAdminCorrection: true, quiet: true });
     } catch {
       setErrorMessage("保存できませんでした。通信が完了しませんでした。");
@@ -290,6 +294,7 @@ export default function DriverPage() {
         applyPageData(result.state);
         measureCardUpdate(targetAction, startedAt, apiMs);
       }
+      if (successNoticeMessages[targetAction]) setNoticeMessage(successNoticeMessages[targetAction]);
       void refreshLatestState({ notifyAdminCorrection: true, quiet: true });
       return true;
     } catch {
