@@ -1,6 +1,7 @@
 "use client";
 
-import React, { FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import React, { FormEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { buildNotificationDisplay as buildNotificationDisplayView } from "@/lib/notification-view";
 import { formatBusinessDate as formatBusinessDateValue, getBusinessDate } from "@/lib/time";
@@ -72,6 +73,7 @@ const tabs: { key: TabKey; label: string }[] = [
 const actionLabels: Record<string, string> = {
   CLOCK_IN: "出勤",
   START_RIDE: "送迎開始",
+  RIDE_CANCELLED: "送迎キャンセル",
   ARRIVE: "現地到着",
   DROPOFF: "女性降車",
   WAIT_FIELD: "現地待機",
@@ -584,15 +586,113 @@ function RideTable({ rows, compact = false, onCorrectStatus, onCorrectWorkTime, 
 }
 
 function AdminDriverActions({ row, onCorrectStatus, onCorrectWorkTime, onProxyClockOut }: { row: any; onCorrectStatus?: (row: any) => void; onCorrectWorkTime?: (row: any) => void; onProxyClockOut?: (row: any) => void }) {
+  const [open, setOpen] = useState(false);
+  const [position, setPosition] = useState({ top: 0, left: 0 });
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const menuId = `admin-action-menu-${row.driverId}`;
+  const actions = [
+    onCorrectStatus ? { label: "現在状態を修正", onClick: () => onCorrectStatus(row) } : null,
+    onCorrectWorkTime ? { label: "出勤時刻を修正", onClick: () => onCorrectWorkTime(row) } : null,
+    onProxyClockOut ? { label: "代理退勤", onClick: () => onProxyClockOut(row) } : null
+  ].filter((item): item is { label: string; onClick: () => void } => Boolean(item));
+
+  const updatePosition = useCallback(() => {
+    const trigger = triggerRef.current;
+    if (!trigger) return;
+    const buttonRect = trigger.getBoundingClientRect();
+    const menuWidth = menuRef.current?.offsetWidth || 220;
+    const menuHeight = menuRef.current?.offsetHeight || Math.max(44, actions.length * 44 + 2);
+    const gap = 8;
+    const margin = 8;
+    const spaceBelow = window.innerHeight - buttonRect.bottom;
+    const spaceAbove = buttonRect.top;
+    const opensUp = spaceBelow < menuHeight + gap && spaceAbove >= menuHeight + gap;
+    const rawTop = opensUp ? buttonRect.top - menuHeight - gap : buttonRect.bottom + gap;
+    const maxTop = Math.max(margin, window.innerHeight - menuHeight - margin);
+    const top = Math.min(Math.max(rawTop, margin), maxTop);
+    const rawLeft = buttonRect.right - menuWidth;
+    const maxLeft = Math.max(margin, window.innerWidth - menuWidth - margin);
+    const left = Math.min(Math.max(rawLeft, margin), maxLeft);
+    setPosition({ top, left });
+  }, [actions.length]);
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    updatePosition();
+  }, [open, updatePosition]);
+
+  useEffect(() => {
+    if (!open) return;
+    const close = () => setOpen(false);
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (menuRef.current?.contains(target)) return;
+      if (triggerRef.current?.contains(target)) return;
+      close();
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") close();
+    };
+    const handleScroll = (event: Event) => {
+      const target = event.target as Node | null;
+      if (target && menuRef.current?.contains(target)) return;
+      close();
+    };
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("scroll", handleScroll, true);
+    window.addEventListener("resize", close);
+    window.addEventListener("orientationchange", close);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("scroll", handleScroll, true);
+      window.removeEventListener("resize", close);
+      window.removeEventListener("orientationchange", close);
+    };
+  }, [open]);
+
+  const toggleMenu = () => {
+    setOpen((current) => !current);
+  };
+
+  const runAction = (action: () => void) => {
+    setOpen(false);
+    action();
+  };
+
   return (
-    <details className="admin-row-menu">
-      <summary>⋮</summary>
-      <div className="admin-row-menu-list">
-        {onCorrectStatus && <button type="button" onClick={() => onCorrectStatus(row)}>現在状態を修正</button>}
-        {onCorrectWorkTime && <button type="button" onClick={() => onCorrectWorkTime(row)}>出勤時刻を修正</button>}
-        {onProxyClockOut && <button type="button" onClick={() => onProxyClockOut(row)}>代理退勤</button>}
-      </div>
-    </details>
+    <>
+      <button
+        ref={triggerRef}
+        className="admin-row-menu-trigger"
+        type="button"
+        aria-label={`${row.driverName}の操作メニュー`}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-controls={open ? menuId : undefined}
+        onClick={toggleMenu}
+      >
+        ⋮
+      </button>
+      {open && createPortal(
+        <div
+          id={menuId}
+          ref={menuRef}
+          className="admin-action-menu"
+          role="menu"
+          style={{ top: position.top, left: position.left }}
+        >
+          {actions.map((action) => (
+            <button key={action.label} className="admin-action-menu-item" type="button" role="menuitem" onClick={() => runAction(action.onClick)}>
+              {action.label}
+            </button>
+          ))}
+        </div>,
+        document.body
+      )}
+    </>
   );
 }
 
@@ -1156,6 +1256,7 @@ function notificationTypeLabel(type: string) {
   if (type === "BUSINESS_ACTION") return "業務通知";
   if (type === "CLOCK_IN") return "出勤";
   if (type === "SCHEDULED_CLOCK_OUT_UPDATED") return "退勤予定変更";
+  if (type === "RIDE_CANCELLED") return "送迎キャンセル";
   if (type === "ARRIVAL_OVERDUE") return "到着予定超過";
   if (type === "CLOCK_OUT_OVERDUE") return "退勤予定超過";
   if (type === "CLOCKOUT_60_MIN_BEFORE") return "退勤予定1時間前";
@@ -1176,7 +1277,7 @@ function notificationCategoryLabel(category: string) {
 }
 
 function notificationTypeOptions(category: "BUSINESS" | "SYSTEM") {
-  if (category === "BUSINESS") return [{ value: "BUSINESS_ACTION", label: "業務通知" }, { value: "CLOCK_IN", label: "出勤" }, { value: "SCHEDULED_CLOCK_OUT_UPDATED", label: "退勤予定変更" }];
+  if (category === "BUSINESS") return [{ value: "BUSINESS_ACTION", label: "業務通知" }, { value: "CLOCK_IN", label: "出勤" }, { value: "RIDE_CANCELLED", label: "送迎キャンセル" }, { value: "SCHEDULED_CLOCK_OUT_UPDATED", label: "退勤予定変更" }];
   return [
     { value: "ARRIVAL_OVERDUE", label: "到着予定超過" },
     { value: "CLOCK_OUT_OVERDUE", label: "退勤予定超過" },

@@ -115,7 +115,7 @@ export function availableActions(currentStatus: string, latestRideType?: string 
   if (currentStatus === STATUSES.NOT_WORKING || currentStatus === STATUSES.CLOCKED_OUT) return ["CLOCK_IN"];
   const common = ["MAIL_CONFIRM_SEND", "MAIL_CONFIRM_PICKUP", "CLOCK_OUT"];
   if (currentStatus === STATUSES.WORKING) return ["START_RIDE", "WAIT_FIELD", "WAIT_OFFICE", ...common];
-  if (([STATUSES.SENDING, STATUSES.PICKING_UP, STATUSES.RETURNING, STATUSES.OTHER] as string[]).includes(currentStatus)) return ["ARRIVE", ...common];
+  if (rideInProgressStatuses.includes(currentStatus)) return ["ARRIVE", "RIDE_CANCELLED", ...common];
   if (currentStatus === STATUSES.ARRIVED) {
     const actions = ["WAIT_FIELD", "WAIT_OFFICE", "START_RIDE", ...common];
     if (latestRideType === "送り" || latestRideType === "事務所戻り") actions.unshift("DROPOFF");
@@ -138,6 +138,13 @@ const rideContextStatuses = [
 ] as string[];
 
 const rideContextActions = ["START_RIDE", "ARRIVE", "DROPOFF", "WAIT_FIELD", "ADMIN_STATUS_CORRECTION"];
+
+const rideInProgressStatuses = [
+  STATUSES.SENDING,
+  STATUSES.PICKING_UP,
+  STATUSES.RETURNING,
+  STATUSES.OTHER
+] as string[];
 
 export async function createDriverLog(params: {
   driver: Driver;
@@ -191,6 +198,20 @@ export async function createDriverLog(params: {
       travelMinutes,
       estimatedArrival: new Date(now.getTime() + travelMinutes * 60_000),
       memo: text(params.input.memo),
+      affectsStatus: true
+    };
+  } else if (action === "RIDE_CANCELLED") {
+    if (!rideInProgressStatuses.includes(currentStatus)) throw new Error("現在の状態では送迎キャンセルできません。");
+    if (!latestRide) throw new Error("キャンセル対象の送迎情報がありません。");
+    const reason = text(params.input.reason);
+    if (!reason) throw new Error("キャンセル理由は必須です。");
+    data = {
+      ...base,
+      status: STATUSES.WORKING,
+      type: currentStatus,
+      castName: latestRide.castName,
+      destination: latestRide.destination,
+      memo: `理由：${reason}`,
       affectsStatus: true
     };
   } else if (action === "ARRIVE") {

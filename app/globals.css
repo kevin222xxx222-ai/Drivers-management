@@ -409,6 +409,28 @@ textarea {
   margin: 0;
 }
 
+.ride-cancel-button {
+  width: 100%;
+  min-height: 48px;
+  border: 1px solid #fca5a5;
+  border-radius: 12px;
+  background: #fff1f2;
+  color: #b42318;
+  font-size: 15px;
+  font-weight: 900;
+  text-align: center;
+  cursor: pointer;
+}
+
+.ride-cancel-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+.ride-cancel-button:not(:disabled):hover {
+  background: #ffe4e6;
+}
+
 .status-guide-ride {
   border-left-color: #0ea5e9;
 }
@@ -495,6 +517,35 @@ textarea {
   width: 100%;
   min-height: 54px;
   font-size: 17px;
+}
+
+.modal-actions.two-buttons {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.cancel-confirm-detail {
+  display: grid;
+  gap: 10px;
+  border: 1px solid #fecdd3;
+  border-radius: 14px;
+  background: #fff7f7;
+  padding: 14px;
+}
+
+.cancel-confirm-detail p {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0;
+  color: #475569;
+  font-weight: 800;
+}
+
+.cancel-confirm-detail strong {
+  color: #0f172a;
+  text-align: right;
 }
 
 .settlement-preview {
@@ -880,12 +931,7 @@ td {
   overflow-x: auto;
 }
 
-.admin-row-menu {
-  position: relative;
-  display: inline-block;
-}
-
-.admin-row-menu summary {
+.admin-row-menu-trigger {
   display: inline-grid;
   width: 32px;
   height: 32px;
@@ -895,33 +941,33 @@ td {
   background: #fff;
   color: #334155;
   cursor: pointer;
-  list-style: none;
 }
 
-.admin-row-menu summary::-webkit-details-marker {
-  display: none;
+.admin-row-menu-trigger:hover,
+.admin-row-menu-trigger[aria-expanded="true"] {
+  background: #f8fafc;
+  border-color: #94a3b8;
 }
 
-.admin-row-menu-list {
-  position: absolute;
-  right: 0;
-  top: calc(100% + 6px);
-  z-index: 20;
-  min-width: 170px;
+.admin-action-menu {
+  position: fixed;
+  z-index: 1000;
+  min-width: 220px;
   overflow: hidden;
-  border: 1px solid #cbd5e1;
-  border-radius: 10px;
+  border: 1px solid #d7dde5;
+  border-radius: 12px;
   background: #fff;
-  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.16);
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.16);
 }
 
-.admin-row-menu-list button {
+.admin-action-menu-item {
   display: block;
   width: 100%;
   border: 0;
   border-bottom: 1px solid #e2e8f0;
   background: #fff;
-  padding: 10px 12px;
+  min-height: 44px;
+  padding: 10px 16px;
   color: #0f172a;
   font-weight: 700;
   text-align: left;
@@ -929,11 +975,11 @@ td {
   white-space: nowrap;
 }
 
-.admin-row-menu-list button:last-child {
+.admin-action-menu-item:last-child {
   border-bottom: 0;
 }
 
-.admin-row-menu-list button:hover {
+.admin-action-menu-item:hover {
   background: #f8fafc;
 }
 

@@ -9,6 +9,7 @@ const latestDriverLogOrder = [{ datetime: "desc" as const }, { createdAt: "desc"
 export const NOTIFICATION_TYPES = {
   BUSINESS_ACTION: "BUSINESS_ACTION",
   CLOCK_IN: "CLOCK_IN",
+  RIDE_CANCELLED: "RIDE_CANCELLED",
   SCHEDULED_CLOCK_OUT_UPDATED: "SCHEDULED_CLOCK_OUT_UPDATED",
   ARRIVAL_OVERDUE: "ARRIVAL_OVERDUE",
   CLOCK_OUT_OVERDUE: "CLOCK_OUT_OVERDUE",
@@ -263,6 +264,7 @@ export async function createBusinessNotificationForLog(log: {
   oldScheduledClockOut?: Date | null;
   newScheduledClockOut?: Date | null;
   waitPlace: string | null;
+  memo?: string | null;
   datetime: Date;
 }) {
   const content = businessNotificationContent(log);
@@ -342,6 +344,7 @@ function businessNotificationContent(log: Parameters<typeof createBusinessNotifi
 
 function businessNotificationType(action: string) {
   if (action === "CLOCK_IN") return NOTIFICATION_TYPES.CLOCK_IN;
+  if (action === "RIDE_CANCELLED") return NOTIFICATION_TYPES.RIDE_CANCELLED;
   if (action === "UPDATE_SCHEDULED_CLOCK_OUT") return NOTIFICATION_TYPES.SCHEDULED_CLOCK_OUT_UPDATED;
   return NOTIFICATION_TYPES.BUSINESS_ACTION;
 }

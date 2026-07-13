@@ -1,6 +1,7 @@
 export const ACTIONS = [
   "CLOCK_IN",
   "START_RIDE",
+  "RIDE_CANCELLED",
   "ARRIVE",
   "DROPOFF",
   "WAIT_FIELD",

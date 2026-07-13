@@ -45,6 +45,7 @@ export type BusinessNotificationView = {
 const colors = {
   business: 0x2ecc71,
   ride: 0x3498db,
+  cancel: 0xe74c3c,
   arrive: 0xe67e22,
   dropoff: 0x9b59b6,
   wait: 0x95a5a6,
@@ -85,6 +86,13 @@ export function buildBusinessNotificationView(log: LogLike, createdAt: string | 
       line("メモ", log.memo)
     ], "ride", mapUrl);
   }
+
+  if (log.action === "RIDE_CANCELLED") return view("⚠️", "送迎キャンセル", time, driverName, [
+    line("元状態", log.type),
+    line("キャスト", log.castName),
+    line("場所", log.destination),
+    log.memo
+  ], "cancel", mapUrl);
 
   if (log.action === "ARRIVE") return view("✅", "現地到着", time, driverName, [
     line("目的地", log.destination),

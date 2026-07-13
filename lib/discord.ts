@@ -61,6 +61,12 @@ export function buildDiscordTitle(input: DiscordTitleInput): string {
     return `📢 ${driverName} / その他対応中`;
   }
 
+  if (input.action === "RIDE_CANCELLED") {
+    const area = destination ? `（${destination}）` : "";
+    const label = input.type === "迎え中" ? "迎え" : input.type === "送り中" ? "送り" : input.type === "戻り中" ? "戻り" : "送迎";
+    return `⚠️ ${driverName}${area} / ${label}をキャンセル`;
+  }
+
   if (input.action === "ARRIVE") {
     if (destination) return `✅ ${driverName} / ${destination}に到着しました`;
     if (type === "事務所戻り" || input.status === "戻り中") return `✅ ${driverName} / 事務所に到着しました`;

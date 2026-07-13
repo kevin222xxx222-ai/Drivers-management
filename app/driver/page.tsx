@@ -29,6 +29,7 @@ const labels: Record<string, string> = {
   DROPOFF: "女性降車",
   WAIT_FIELD: "現地待機",
   WAIT_OFFICE: "事務所待機",
+  RIDE_CANCELLED: "送迎キャンセル",
   CLOCK_OUT: "退勤",
   MAIL_CONFIRM_SEND: "送りメール確認",
   MAIL_CONFIRM_PICKUP: "迎えメール確認",
@@ -41,6 +42,8 @@ const labels: Record<string, string> = {
 
 const locationActions = new Set(["CLOCK_IN", "START_RIDE", "ARRIVE", "DROPOFF", "WAIT_FIELD", "WAIT_OFFICE", "CLOCK_OUT"]);
 const formActions = new Set(["CLOCK_IN", "START_RIDE", "CLOCK_OUT"]);
+const rideCancelStatuses = ["送り中", "迎え中", "戻り中", "その他"];
+const rideCancelReasons = ["行き先変更", "迎え場所変更", "別送迎へ変更", "管理者指示", "その他"];
 
 const confirmMessages: Record<string, string> = {
   ARRIVE: "現地到着として登録しますか？",
@@ -61,6 +64,7 @@ export default function DriverPage() {
   const [distance, setDistance] = useState("");
   const [preview, setPreview] = useState<any>(null);
   const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [rideCancelOpen, setRideCancelOpen] = useState(false);
   const [scheduledClockOut, setScheduledClockOut] = useState("");
   const [rideType, setRideType] = useState("送り");
   const [historyLimit, setHistoryLimit] = useState(5);
@@ -134,7 +138,7 @@ export default function DriverPage() {
   useEffect(() => {
     const interval = window.setInterval(() => {
       if (document.visibilityState !== "visible") return;
-      if (action || scheduleOpen) return;
+      if (action || scheduleOpen || rideCancelOpen) return;
       void refreshLatestState({ notifyAdminCorrection: true, quiet: true });
     }, 15_000);
     const refreshOnActive = () => {
@@ -147,7 +151,7 @@ export default function DriverPage() {
       document.removeEventListener("visibilitychange", refreshOnActive);
       window.removeEventListener("focus", refreshOnActive);
     };
-  }, [action, refreshLatestState, scheduleOpen]);
+  }, [action, refreshLatestState, rideCancelOpen, scheduleOpen]);
 
   useEffect(() => {
     if (action !== "CLOCK_OUT") return setPreview(null);
@@ -159,9 +163,9 @@ export default function DriverPage() {
   }, [action, distance]);
 
   useEffect(() => {
-    document.body.classList.toggle("modal-open", Boolean(action || scheduleOpen));
+    document.body.classList.toggle("modal-open", Boolean(action || scheduleOpen || rideCancelOpen));
     return () => document.body.classList.remove("modal-open");
-  }, [action, scheduleOpen]);
+  }, [action, rideCancelOpen, scheduleOpen]);
 
   function clearMessages() {
     setErrorMessage("");
@@ -178,6 +182,11 @@ export default function DriverPage() {
     clearMessages();
     setScheduledClockOut(toLocalInputValue(data?.scheduledClockOut));
     setScheduleOpen(true);
+  }
+
+  function openRideCancel() {
+    clearMessages();
+    setRideCancelOpen(true);
   }
 
   async function saveScheduledClockOut(event: FormEvent<HTMLFormElement>) {
@@ -236,6 +245,13 @@ export default function DriverPage() {
     await saveAction(action, Object.fromEntries(form.entries()));
   }
 
+  async function submitRideCancel(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const saved = await saveAction("RIDE_CANCELLED", Object.fromEntries(form.entries()));
+    if (saved) setRideCancelOpen(false);
+  }
+
   async function saveAction(targetAction: string, body: Record<string, FormDataEntryValue> = {}) {
     const startedAt = performance.now();
     setLoading(true);
@@ -262,9 +278,10 @@ export default function DriverPage() {
           await refreshLatestState({ notifyAdminCorrection: true, quiet: true });
           setAction("");
           setScheduleOpen(false);
+          setRideCancelOpen(false);
           setErrorMessage("状態が更新されていたため、最新情報を読み込みました。現在の状態をご確認ください。");
         }
-        return;
+        return false;
       }
       setAction("");
       setScheduleOpen(false);
@@ -274,8 +291,10 @@ export default function DriverPage() {
         measureCardUpdate(targetAction, startedAt, apiMs);
       }
       void refreshLatestState({ notifyAdminCorrection: true, quiet: true });
+      return true;
     } catch {
       setErrorMessage("保存できませんでした。通信が完了しませんでした。");
+      return false;
     } finally {
       setLoading(false);
       setProcessingAction("");
@@ -332,7 +351,7 @@ export default function DriverPage() {
 
         {noticeMessage && <p className={noticeMessage.startsWith("🛠") ? "admin-correction-notice" : "success"}>{noticeMessage}</p>}
 
-        <StatusGuide data={data} />
+        <StatusGuide data={data} onRideCancel={openRideCancel} loading={loading} processingAction={processingAction} />
 
         {!!primaryActions.length && (
           <section className="panel stack">
@@ -374,6 +393,24 @@ export default function DriverPage() {
               <label>退勤予定日時<input type="datetime-local" required value={scheduledClockOut} onChange={(event) => setScheduledClockOut(event.target.value)} /></label>
               <div className="modal-actions">
                 <button className="button" disabled={loading} type="submit">{processingAction === "UPDATE_SCHEDULED_CLOCK_OUT" ? "登録中..." : "保存"}</button>
+              </div>
+            </form>
+          </FormModal>
+        )}
+
+        {rideCancelOpen && (
+          <FormModal title="現在の送迎をキャンセル" onClose={() => setRideCancelOpen(false)}>
+            <form className="stack modal-form" onSubmit={submitRideCancel}>
+              <div className="cancel-confirm-detail">
+                <p><span>現在状態</span><strong>{data.currentStatus}</strong></p>
+                <p><span>キャスト</span><strong>{data.latestRideLog?.castName ?? "-"}</strong></p>
+                <p><span>目的地</span><strong>{data.latestRideLog?.destination ?? "-"}</strong></p>
+              </div>
+              <label>理由<select name="reason" required defaultValue="行き先変更">{rideCancelReasons.map((reason) => <option key={reason} value={reason}>{reason}</option>)}</select></label>
+              <p className="muted">既存ログは変更せず、送迎キャンセルログを追加して現在状態を出勤中へ戻します。</p>
+              <div className="modal-actions two-buttons">
+                <button className="button secondary" type="button" onClick={() => setRideCancelOpen(false)}>戻る</button>
+                <button className="button danger" disabled={loading} type="submit">{processingAction === "RIDE_CANCELLED" ? "登録中..." : "キャンセル実行"}</button>
               </div>
             </form>
           </FormModal>
@@ -421,7 +458,7 @@ function ActionFields({ action, gasSettlementType, distance, setDistance, rideTy
   return null;
 }
 
-function StatusGuide({ data }: { data: PageData }) {
+function StatusGuide({ data, onRideCancel, loading, processingAction }: { data: PageData; onRideCancel: () => void; loading: boolean; processingAction: string }) {
   const status = data.currentStatus;
   const log = data.latestStatusLog;
   const ride = data.latestRideLog;
@@ -452,6 +489,11 @@ function StatusGuide({ data }: { data: PageData }) {
     <section className={`panel stack status-guide ${statusClass(status)}`}>
       <div className="status-guide-title">{statusIcon(status)} {status}</div>
       {!!lines.length && <div className="status-guide-lines">{lines.map((line) => <p key={line}>{line}</p>)}</div>}
+      {rideCancelStatuses.includes(status) && (
+        <button className="ride-cancel-button" type="button" disabled={loading} onClick={onRideCancel}>
+          {processingAction === "RIDE_CANCELLED" ? "キャンセル中..." : "⚠️ 現在の送迎をキャンセル"}
+        </button>
+      )}
     </section>
   );
 }
