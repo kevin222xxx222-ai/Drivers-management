@@ -324,7 +324,7 @@ export default function DriverPage() {
   const usableActions = data.availableActions.filter((item) => item !== "RIDE_CANCELLED" && (item !== "DROPOFF" || Boolean(data.latestRideLog?.castName)));
   const primaryActions = mainActionsFor(data.currentStatus, data.latestRideLog).filter((item) => usableActions.includes(item));
   const subActions = usableActions.filter((item) => !primaryActions.includes(item) && item !== "CLOCK_OUT");
-  const canCancelRide = rideCancelStatuses.includes(data.currentStatus);
+  const canCancelRide = rideCancelStatuses.includes(data.currentStatus) && Boolean(data.latestRideLog);
   const isWorking = !["未出勤", "退勤済み"].includes(data.currentStatus);
   const visibleLogs = data.todayLogs.slice(0, historyLimit);
 
@@ -352,13 +352,7 @@ export default function DriverPage() {
 
         {noticeMessage && <p className={noticeMessage.startsWith("🛠") ? "admin-correction-notice" : "success"}>{noticeMessage}</p>}
 
-        <StatusGuide data={data} />
-
-        {canCancelRide && (
-          <button className="ride-cancel-button" type="button" disabled={loading} onClick={openRideCancel}>
-            {processingAction === "RIDE_CANCELLED" ? "キャンセル中..." : "⚠️ 現在の送迎をキャンセル"}
-          </button>
-        )}
+        <StatusGuide data={data} canCancelRide={canCancelRide} onRideCancel={openRideCancel} loading={loading} processingAction={processingAction} />
 
         {!!primaryActions.length && (
           <section className="panel stack">
@@ -465,7 +459,19 @@ function ActionFields({ action, gasSettlementType, distance, setDistance, rideTy
   return null;
 }
 
-function StatusGuide({ data }: { data: PageData }) {
+function StatusGuide({
+  data,
+  canCancelRide = false,
+  onRideCancel,
+  loading,
+  processingAction
+}: {
+  data: PageData;
+  canCancelRide?: boolean;
+  onRideCancel?: () => void;
+  loading?: boolean;
+  processingAction?: string;
+}) {
   const status = data.currentStatus;
   const log = data.latestStatusLog;
   const ride = data.latestRideLog;
@@ -496,6 +502,13 @@ function StatusGuide({ data }: { data: PageData }) {
     <section className={`panel stack status-guide ${statusClass(status)}`}>
       <div className="status-guide-title">{statusIcon(status)} {status}</div>
       {!!lines.length && <div className="status-guide-lines">{lines.map((line) => <p key={line}>{line}</p>)}</div>}
+      {canCancelRide && onRideCancel && (
+        <div className="status-guide-sub-action">
+          <button className="ride-cancel-link" type="button" disabled={loading} onClick={onRideCancel}>
+            {processingAction === "RIDE_CANCELLED" ? "取り消し中..." : "送迎を取り消す"}
+          </button>
+        </div>
+      )}
     </section>
   );
 }
