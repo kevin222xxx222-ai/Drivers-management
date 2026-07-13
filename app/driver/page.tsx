@@ -133,6 +133,12 @@ export default function DriverPage() {
     return load(options);
   }, [load]);
 
+  function handleManualRefresh() {
+    setErrorMessage("");
+    setNoticeMessage("");
+    void refreshLatestState({ manual: true, notifyAdminCorrection: true });
+  }
+
   useEffect(() => {
     load({ notifyAdminCorrection: true, quiet: true });
   }, [load]);
@@ -348,7 +354,7 @@ export default function DriverPage() {
                 <button className="link-button" type="button" onClick={openScheduleEdit}>変更</button>
               </div>
             )}
-            <button className="button secondary driver-refresh-button" type="button" disabled={refreshing} onClick={() => refreshLatestState({ manual: true, notifyAdminCorrection: true })}>
+            <button className="button secondary driver-refresh-button" type="button" disabled={refreshing} onClick={handleManualRefresh}>
               {refreshing ? "更新中..." : "↻ 最新状態に更新"}
             </button>
           </div>
